@@ -156,27 +156,6 @@ impl AnimationManager {
     }
 }
 
-// 4. RPG ATTRIBUTES
-pub struct Stats {
-    pub strength: i32,
-    pub agility: i32,
-    pub intelligence: i32,
-}
-
-impl Stats {
-    pub fn new(strength: i32, agility: i32, intelligence: i32) -> Self {
-        Self {
-            strength,
-            agility,
-            intelligence,
-        }
-    }
-
-    pub fn get_movement_speed(&self) -> f32 {
-        // Base speed plus agility modifier
-        3.0 + (self.agility as f32 * 0.15)
-    }
-}
 
 // 5. TECHNICAL RENDERING HELPER
 // Renders the character as a billboard that faces the camera.
