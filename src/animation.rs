@@ -128,12 +128,20 @@ impl AnimationManager {
         self.current_frame += dt * anim_fps;
         
         if self.current_frame >= frame_count {
-            if self.state == AnimationState::Death {
-                // Stop on the last frame of the death animation
-                self.current_frame = frame_count - 0.01;
-            } else {
-                // Loop other animations
-                self.current_frame %= frame_count;
+            match self.state {
+                AnimationState::Death
+                | AnimationState::Sword
+                | AnimationState::Bow
+                | AnimationState::Staff
+                | AnimationState::Punch
+                | AnimationState::Hurt => {
+                    // Stop on the last frame
+                    self.current_frame = frame_count - 0.01;
+                }
+                _ => {
+                    // Loop other animations (Walk, Idle, Carry, etc.)
+                    self.current_frame %= frame_count;
+                }
             }
         }
     }
