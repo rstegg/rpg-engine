@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use crate::player::Hero;
+use crate::entities::player::Hero;
 use crate::Assets;
 
 pub fn draw_hud(hero: &Hero, assets: &Assets) {

@@ -3,5 +3,16 @@ name = "rpg_engine"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "client"
+path = "src/main.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
 [dependencies]
 macroquad = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1.3"

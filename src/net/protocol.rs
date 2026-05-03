@@ -1,0 +1,171 @@
+use serde::{Deserialize, Serialize};
+
+/// Maximum players the server will accept.
+pub const MAX_PLAYERS: usize = 16;
+
+/// Server tick rate in Hz (how many times per second the server broadcasts world state).
+pub const SERVER_TICK_RATE: u64 = 20;
+
+/// Default server port.
+pub const DEFAULT_PORT: u16 = 7878;
+
+/// Magic bytes prepended to every packet for basic validation.
+pub const PROTOCOL_MAGIC: [u8; 4] = [0x52, 0x50, 0x47, 0x45]; // "RPGE"
+
+/// Protocol version — clients and server must match.
+pub const PROTOCOL_VERSION: u8 = 1;
+
+// ─── Unique Player Identity ───
+
+pub type PlayerId = u64;
+
+// ─── Client → Server Messages ───
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientMessage {
+    /// Request to join the server. Sent once on connect.
+    Join {
+        version: u8,
+        name: String,
+        appearance: CharacterAppearanceNet,
+    },
+    /// Player wants to move to this world position.
+    MoveTo { x: f32, z: f32 },
+    /// Player wants to cast a spell.
+    CastSpell {
+        spell: u8, // 0=Q, 1=W, 2=E, 3=R
+        target_x: f32,
+        target_z: f32,
+    },
+    /// Heartbeat to keep connection alive.
+    Ping { client_time: f64 },
+    /// Player is leaving gracefully.
+    Disconnect,
+}
+
+// ─── Server → Client Messages ───
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ServerMessage {
+    /// Welcome! Here is your assigned player ID.
+    JoinAccepted { your_id: PlayerId },
+    /// Server is full or version mismatch.
+    JoinRejected { reason: String },
+    /// A new player has joined.
+    PlayerJoined {
+        id: PlayerId,
+        name: String,
+        appearance: CharacterAppearanceNet,
+    },
+    /// A player has left.
+    PlayerLeft { id: PlayerId },
+    /// The authoritative world state snapshot. Sent every tick.
+    WorldState {
+        tick: u64,
+        server_time: f64,
+        players: Vec<PlayerState>,
+        effects: Vec<EffectState>,
+    },
+    /// Response to client Ping.
+    Pong { client_time: f64, server_time: f64 },
+}
+
+// ─── Shared Data Structures ───
+
+/// Compact player state for network transmission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerState {
+    pub id: PlayerId,
+    pub x: f32,
+    pub z: f32,
+    pub target_x: f32,
+    pub target_z: f32,
+    pub direction: u8,       // 0-7 matching Direction enum
+    pub anim_state: u8,      // Matches AnimationState enum
+    pub anim_frame: f32,
+    pub casting_timer: f32,
+}
+
+/// Compact spell effect for network transmission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EffectState {
+    pub effect_id: u64,
+    pub spell: u8,
+    pub x: f32,
+    pub z: f32,
+    pub timer: f32,
+    pub caster_id: PlayerId,
+}
+
+/// Network-friendly character appearance (mirrors CharacterAppearance but lightweight).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterAppearanceNet {
+    pub skin: String,
+    pub shoes: Option<String>,
+    pub clothes: Option<String>,
+    pub gloves: Option<String>,
+    pub hairstyle: Option<String>,
+    pub facial_hair: Option<String>,
+    pub eye_color: Option<String>,
+    pub eyelashes: Option<String>,
+    pub headgear: Option<String>,
+    pub addon: Option<String>,
+}
+
+// ─── Packet Framing ───
+
+/// Encode a message into a packet with magic header + version.
+pub fn encode_client_message(msg: &ClientMessage) -> Vec<u8> {
+    let mut packet = Vec::with_capacity(512);
+    packet.extend_from_slice(&PROTOCOL_MAGIC);
+    packet.push(PROTOCOL_VERSION);
+    packet.push(0x01); // Message type: Client
+    let payload = bincode::serialize(msg).expect("Failed to serialize client message");
+    packet.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    packet.extend_from_slice(&payload);
+    packet
+}
+
+pub fn encode_server_message(msg: &ServerMessage) -> Vec<u8> {
+    let mut packet = Vec::with_capacity(2048);
+    packet.extend_from_slice(&PROTOCOL_MAGIC);
+    packet.push(PROTOCOL_VERSION);
+    packet.push(0x02); // Message type: Server
+    let payload = bincode::serialize(msg).expect("Failed to serialize server message");
+    packet.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    packet.extend_from_slice(&payload);
+    packet
+}
+
+/// Decode a raw packet. Returns None if invalid.
+pub fn decode_packet(data: &[u8]) -> Option<PacketPayload> {
+    if data.len() < 8 { return None; } // Magic(4) + Version(1) + Type(1) + Len(2)
+    if &data[0..4] != &PROTOCOL_MAGIC { return None; }
+    if data[4] != PROTOCOL_VERSION { return None; }
+
+    let msg_type = data[5];
+    let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
+
+    if data.len() < 8 + payload_len { return None; }
+    let payload = &data[8..8 + payload_len];
+
+    match msg_type {
+        0x01 => {
+            bincode::deserialize::<ClientMessage>(payload)
+                .ok()
+                .map(PacketPayload::Client)
+        }
+        0x02 => {
+            bincode::deserialize::<ServerMessage>(payload)
+                .ok()
+                .map(PacketPayload::Server)
+        }
+        _ => None,
+    }
+}
+
+#[derive(Debug)]
+pub enum PacketPayload {
+    Client(ClientMessage),
+    Server(ServerMessage),
+}
