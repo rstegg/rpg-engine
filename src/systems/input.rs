@@ -5,7 +5,8 @@ use crate::entities::effects::EffectManager;
 use crate::core::animation::AnimationState;
 use crate::Assets;
 use crate::world::environment::WorldEnvironment;
-use crate::world::pathfinding::{find_path, line_of_sight, is_walkable_with_radius};
+use crate::world::pathfinding::{find_path, line_of_sight};
+use crate::systems::indicators::IndicatorManager;
 
 pub fn handle_input(
     hero: &mut Hero,
@@ -14,6 +15,7 @@ pub fn handle_input(
     dummies: &[Vec3],
     assets: &Assets,
     env: &WorldEnvironment,
+    indicators: &mut IndicatorManager,
 ) -> Option<SpellCastEvent> {
     let mut cast_event: Option<SpellCastEvent> = None;
 
@@ -96,7 +98,7 @@ pub fn handle_input(
             hero.targeting_state = TargetingState::None;
         } else if hero.casting_timer <= 0.0 {
             if let Some(goal) = camera.get_mouse_ray_intersection() {
-                // Try direct movement first (Warcraft 3 style)
+                indicators.spawn_move_marker(goal);
                 // Try direct movement first (Warcraft 3 style)
                 // Use pathfinding_grid (padded) so direct line only happens if there is enough clearance
                 if line_of_sight(hero.pos, goal, env.grid_size, env.width, env.height, &env.pathfinding_grid) {

@@ -11,6 +11,7 @@ use entities::player::*;
 use entities::character::*;
 use core::camera::*;
 use systems::input::*;
+use systems::indicators::*;
 use entities::effects::*;
 use ui::character_creator::*;
 use net::client::NetClient;
@@ -38,7 +39,7 @@ enum GameState {
 }
 
 async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
-    let mut tex = load_texture(path).await.unwrap_or_else(|_| {
+    let tex = load_texture(path).await.unwrap_or_else(|_| {
         let mut bytes: Vec<u8> = Vec::with_capacity(64 * 64 * 4);
         for _ in 0..(64*64) {
             bytes.push((color.r * 255.0) as u8);
@@ -103,11 +104,12 @@ async fn main() {
         Err(_) => std::collections::HashMap::new(),
     };
 
-    let mut world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
+    let world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
     let mut debug_pathfinding = false;
 
     let mut game_camera = GameCamera::new(hero.pos);
     let mut effect_manager = EffectManager::new();
+    let mut indicator_manager = IndicatorManager::new();
 
     // Spawn some test dummies
     let dummies = vec![
@@ -376,7 +378,15 @@ async fn main() {
                 }
 
                 game_camera.update(hero.pos);
-                let cast_event = handle_input(&mut hero, &game_camera, &mut effect_manager, &dummies, &assets, &world_env);
+                let cast_event = handle_input(
+                    &mut hero,
+                    &game_camera,
+                    &mut effect_manager,
+                    &dummies,
+                    &assets,
+                    &world_env,
+                    &mut indicator_manager,
+                );
 
                 if is_key_pressed(KeyCode::F2) {
                     game_state = GameState::HitboxCalibration;
@@ -481,6 +491,7 @@ async fn main() {
 
                 hero.anim.update(delta_time, hero.stats.get_movement_speed());
                 effect_manager.update(delta_time);
+                indicator_manager.update(delta_time);
 
                 // Render
                 set_camera(&game_camera.camera);
@@ -555,9 +566,7 @@ async fn main() {
                 }
                 // ── End Debug Overlay ──────────────────────────────────────
 
-                if (hero.target_pos - hero.pos).length() > 0.1 {
-                    draw_cube_wires(hero.target_pos, vec3(0.5, 0.1, 0.5), Color::new(0.0, 0.8, 1.0, 1.0));
-                }
+                indicator_manager.draw();
 
                 // Update Ogre animation
                 ogre_anim_timer += delta_time * 3.0;
@@ -655,14 +664,7 @@ async fn main() {
                 match hero.targeting_state {
                     TargetingState::Aoe(_, radius) => {
                         if let Some(intersection) = game_camera.get_mouse_ray_intersection() {
-                            let segments = 64;
-                            for i in 0..segments {
-                                let a1 = (i as f32 / segments as f32) * 6.28;
-                                let a2 = ((i + 1) as f32 / segments as f32) * 6.28;
-                                let p1 = intersection + vec3(a1.cos() * radius, 0.05, a1.sin() * radius);
-                                let p2 = intersection + vec3(a2.cos() * radius, 0.05, a2.sin() * radius);
-                                draw_line_3d(p1, p2, Color::new(1.0, 0.5, 0.0, 1.0)); // Dark Orange
-                            }
+                            draw_aoe_target(intersection, radius, get_time() as f32);
                         }
                     }
                     TargetingState::UnitTarget(_) => {

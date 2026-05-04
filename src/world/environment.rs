@@ -1,7 +1,6 @@
 use macroquad::prelude::*;
 use std::collections::HashMap;
 use gltf::Gltf;
-use ::rand::prelude::SliceRandom;
 
 /// One primitive within a GLB — has its own flat material color.
 #[derive(Clone)]
@@ -153,8 +152,8 @@ pub struct WorldEnvironment {
 
 impl WorldEnvironment {
     pub async fn new(tile_width: i32, tile_height: i32, radius_overrides: HashMap<String, f32>) -> Self {
-        let base = "GLTF format/";
-        let mut to_load: Vec<(&str, &str)> = vec![
+        let base = "assets/world_models/";
+        let to_load: Vec<(&str, &str)> = vec![
             ("grass",    "ground_grass.glb"),
             ("path",     "ground_pathStraight.glb"),
             ("tree_a",   "tree_default.glb"),
