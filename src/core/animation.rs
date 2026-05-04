@@ -167,29 +167,37 @@ impl AnimationManager {
 
 // 5. TECHNICAL RENDERING HELPER
 // Renders the character as a billboard that faces the camera.
+// Renders the character as a billboard that faces the camera.
 pub fn draw_character_billboard(
     pos: Vec3,
     texture: &Texture2D,
     source_rect: Rect,
     camera_pos: Vec3,
 ) {
-    let size = vec2(2.0, 2.0); // Adjust size as needed based on sprite_width/height ratio
+    draw_character_billboard_ex(pos, texture, source_rect, camera_pos, 2.0);
+}
+
+pub fn draw_character_billboard_ex(
+    pos: Vec3,
+    texture: &Texture2D,
+    source_rect: Rect,
+    camera_pos: Vec3,
+    base_size: f32,
+) {
+    let size = vec2(base_size, base_size); 
     let half_w = size.x / 2.0;
     let half_h = size.y / 2.0;
 
-    // A billboard always faces the camera.
-    // In WC3 style, typically they rotate around the Y axis to face the camera direction.
     let billboard_rot = f32::atan2(camera_pos.x - pos.x, camera_pos.z - pos.z);
     let rot = macroquad::math::Mat4::from_rotation_y(billboard_rot);
 
-    let center = pos + vec3(0.0, half_h, 0.0); // Offset up by half height so feet are at pos
+    let center = pos + vec3(0.0, half_h, 0.0);
 
     let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
     let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
     let p3 = center + rot.transform_point3(vec3( half_w,  half_h, 0.0));
     let p4 = center + rot.transform_point3(vec3(-half_w,  half_h, 0.0));
 
-    // Map source_rect to UV coordinates (0.0 to 1.0)
     let tex_w = texture.width();
     let tex_h = texture.height();
 
@@ -212,6 +220,5 @@ pub fn draw_character_billboard(
         texture: Some(texture.clone()),
     };
     
-    // Draw the mesh, the material should support transparency if texture has an alpha channel
     draw_mesh(&mesh);
 }

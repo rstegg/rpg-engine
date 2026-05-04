@@ -7,6 +7,7 @@ pub struct Particle {
     pub texture: Texture2D,
     pub timer: f32,
     pub rotation: f32, // For 45 degree tilt
+    pub size: f32,     // Base height of the billboard
     
     pub columns: u32,
     pub current_frame: f32,
@@ -22,24 +23,27 @@ impl EffectManager {
     pub fn new() -> Self {
         Self { particles: Vec::new() }
     }
-
     pub fn spawn_arrow_rain(&mut self, target_pos: Vec3, texture: Texture2D) {
-        // Spawn 6-8 arrows high up, falling diagonally
-        let count = macroquad::rand::gen_range(6, 9);
+        // Spawn 12-16 arrows high up, falling diagonally
+        let count = macroquad::rand::gen_range(12, 17);
         for _ in 0..count {
             let height = macroquad::rand::gen_range(5.0, 10.0);
             let fall_time = height / 15.0; // Time it takes to hit the ground at Y-velocity 15
             let spawn_x = -15.0 * fall_time; // Offset X so it lands near the target
             
-            let offset_x = macroquad::rand::gen_range(-1.5, 1.5);
-            let offset_z = macroquad::rand::gen_range(-1.5, 1.5);
+            let offset_x = macroquad::rand::gen_range(-2.0, 2.0);
+            let offset_z = macroquad::rand::gen_range(-2.0, 2.0);
             
+            let mut tex = texture.clone();
+            tex.set_filter(FilterMode::Nearest); // Fix blurriness
+
             self.particles.push(Particle {
                 pos: target_pos + vec3(spawn_x + offset_x, height, offset_z),
                 velocity: vec3(15.0, -15.0, 0.0), // falling diagonally
-                texture: texture.clone(),
+                texture: tex,
                 timer: 1.0, // Lives for up to 1 second
                 rotation: std::f32::consts::PI / 4.0 + std::f32::consts::PI, // Flipped 180 degrees
+                size: 1.2, // Smaller, less chunky arrows
                 columns: 6,
                 current_frame: 0.0,
                 fps: 15.0, // Arrow loop speed
@@ -57,13 +61,17 @@ impl EffectManager {
             _ => (1, 1.0),
         };
 
+        let mut tex = texture.clone();
+        tex.set_filter(FilterMode::Nearest);
+
         // Spawn a static hit effect at the target position
         self.particles.push(Particle {
             pos: target_pos + vec3(0.0, 1.5, 0.0), // Raised slightly to 1.5 to guarantee it doesn't clip into the floor
             velocity: vec3(0.0, 0.0, 0.0),
-            texture: texture.clone(),
+            texture: tex,
             timer: 99.0, // Lifespan is controlled by the animation length
             rotation: 0.0,
+            size: 3.5, // Large impact effects
             columns,
             current_frame: 0.0,
             fps,
@@ -94,8 +102,7 @@ impl EffectManager {
             let frame_w_pixels = tex_w / p.columns as f32;
             let aspect_ratio = if tex_h > 0.0 { frame_w_pixels / tex_h } else { 1.0 };
             
-            let base_height = 3.0; // Slightly larger for better visibility
-            let size = vec2(base_height * aspect_ratio, base_height);
+            let size = vec2(p.size * aspect_ratio, p.size);
             let half_w = size.x / 2.0;
             let half_h = size.y / 2.0;
 

@@ -168,7 +168,7 @@ impl CharacterCreator {
         draw_rectangle(preview_x - 5.0, top_y - 5.0, preview_w + 10.0, preview_w + 10.0 + 40.0, Color::new(0.12, 0.12, 0.18, 1.0));
         draw_text("PREVIEW", preview_x + 10.0, top_y + 20.0, 22.0, Color::new(0.6, 0.6, 0.8, 1.0));
 
-        // Animate preview (idle, south-facing)
+        // Preview is South/Idle by default
         self.preview_anim.state = AnimationState::Idle;
         self.preview_anim.direction = Direction::South;
         self.preview_anim.update(dt, 1.0);
@@ -191,48 +191,6 @@ impl CharacterCreator {
                     ..Default::default()
                 },
             );
-        }
-
-        // Direction preview buttons
-        let dir_labels = ["S", "SE", "E", "NE", "N", "NW", "W", "SW"];
-        let dir_values = [
-            Direction::South, Direction::SouthEast, Direction::East, Direction::NorthEast,
-            Direction::North, Direction::NorthWest, Direction::West, Direction::SouthWest,
-        ];
-        let dir_y = top_y + preview_size + 55.0;
-        for (i, label) in dir_labels.iter().enumerate() {
-            let dx = preview_x + 10.0 + i as f32 * 27.0;
-            let is_active = self.preview_anim.direction == dir_values[i];
-            let bg = if is_active { Color::new(0.3, 0.5, 0.3, 1.0) } else { Color::new(0.2, 0.2, 0.3, 1.0) };
-            let hovered = mx >= dx && mx <= dx + 24.0 && my >= dir_y && my <= dir_y + 22.0;
-
-            draw_rectangle(dx, dir_y, 24.0, 22.0, if hovered { Color::new(0.3, 0.3, 0.5, 1.0) } else { bg });
-            draw_text(label, dx + 2.0, dir_y + 16.0, 14.0, WHITE);
-
-            if hovered && clicked {
-                self.preview_anim.direction = dir_values[i];
-            }
-        }
-
-        // Animation state buttons
-        let anim_labels = ["Idle", "Walk", "Sword", "Bow", "Staff"];
-        let anim_values = [
-            AnimationState::Idle, AnimationState::Walk, AnimationState::Sword,
-            AnimationState::Bow, AnimationState::Staff,
-        ];
-        let anim_y = dir_y + 30.0;
-        for (i, label) in anim_labels.iter().enumerate() {
-            let ax = preview_x + 5.0 + i as f32 * 44.0;
-            let is_active = self.preview_anim.state == anim_values[i];
-            let bg = if is_active { Color::new(0.3, 0.5, 0.3, 1.0) } else { Color::new(0.2, 0.2, 0.3, 1.0) };
-            let hovered = mx >= ax && mx <= ax + 40.0 && my >= anim_y && my <= anim_y + 22.0;
-
-            draw_rectangle(ax, anim_y, 40.0, 22.0, if hovered { Color::new(0.3, 0.3, 0.5, 1.0) } else { bg });
-            draw_text(label, ax + 2.0, anim_y + 16.0, 13.0, WHITE);
-
-            if hovered && clicked {
-                self.preview_anim.set_state(anim_values[i]);
-            }
         }
 
         // ─── RIGHT PANEL: Options Grid ───

@@ -1,6 +1,13 @@
 use macroquad::prelude::*;
 use crate::core::animation::AnimationManager;
 
+/// Returned when the player casts a spell, so networking can forward it.
+pub struct SpellCastEvent {
+    pub spell: SpellId,
+    pub target_x: f32,
+    pub target_z: f32,
+}
+
 pub struct Stats {
     pub strength: i32,
     pub agility: i32,
@@ -47,8 +54,10 @@ pub enum TargetingState {
 pub struct Hero {
     pub pos: Vec3,
     pub target_pos: Vec3,
+    pub current_path: Vec<Vec3>,
     pub stats: Stats,
     pub anim: AnimationManager,
     pub targeting_state: TargetingState,
     pub casting_timer: f32, // Locks movement/animation while > 0
+    pub stuck_timer: f32,   // Tracks how long we've been running into a wall
 }

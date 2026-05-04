@@ -3,6 +3,7 @@ mod entities;
 mod systems;
 mod ui;
 mod net;
+mod world;
 
 use macroquad::prelude::*;
 use core::animation::*;
@@ -33,10 +34,11 @@ enum GameState {
     CharacterCreation,
     Connecting,
     Playing,
+    HitboxCalibration,
 }
 
 async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
-    load_texture(path).await.unwrap_or_else(|_| {
+    let mut tex = load_texture(path).await.unwrap_or_else(|_| {
         let mut bytes: Vec<u8> = Vec::with_capacity(64 * 64 * 4);
         for _ in 0..(64*64) {
             bytes.push((color.r * 255.0) as u8);
@@ -44,10 +46,10 @@ async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
             bytes.push((color.b * 255.0) as u8);
             bytes.push((color.a * 255.0) as u8);
         }
-        let tex = Texture2D::from_rgba8(64, 64, &bytes);
-        tex.set_filter(FilterMode::Nearest);
-        tex
-    })
+        Texture2D::from_rgba8(64, 64, &bytes)
+    });
+    tex.set_filter(FilterMode::Nearest);
+    tex
 }
 
 #[macroquad::main("2.5D Indie RPG")]
@@ -61,7 +63,7 @@ async fn main() {
         spell_w: load_or_fallback("assets/effects/power-strike-spell.png", RED).await,
         spell_e: load_or_fallback("assets/effects/fire-claw-spell.png", ORANGE).await,
         spell_r: load_or_fallback("assets/effects/dark-void-spell.png", PURPLE).await,
-        dummy: load_or_fallback("assets/characters/dummy.png", GRAY).await,
+        dummy: load_or_fallback("assets/characters/layers/skins/Cyclops1.png", GRAY).await,
         target_mouse: load_or_fallback("assets/ui/target-mouse.png", RED).await,
     };
 
@@ -82,17 +84,27 @@ async fn main() {
         rows: 8,
     };
 
-    // Load initial character textures
+    let mut ogre_anim_timer = 0.0;
     let mut char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
 
     let mut hero = Hero {
         pos: vec3(0.0, 0.0, 0.0),
         target_pos: vec3(0.0, 0.0, 0.0),
+        current_path: Vec::new(),
         stats: Stats::new(10, 15, 10),
         anim: AnimationManager::new(config),
         targeting_state: TargetingState::None,
         casting_timer: 0.0,
+        stuck_timer: 0.0,
     };
+
+    let mut hitbox_config: std::collections::HashMap<String, f32> = match std::fs::read_to_string("hitbox_config.json") {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => std::collections::HashMap::new(),
+    };
+
+    let mut world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
+    let mut debug_pathfinding = false;
 
     let mut game_camera = GameCamera::new(hero.pos);
     let mut effect_manager = EffectManager::new();
@@ -111,6 +123,13 @@ async fn main() {
     let mut remote_anims: std::collections::HashMap<u64, AnimationManager> = std::collections::HashMap::new();
     let mut spawned_effect_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
+    // Calibration state
+    let mut calibration_selected_idx = 0;
+    // Ensure all templates have an entry in hitbox_config
+    for key in world_env.templates.keys() {
+        hitbox_config.entry(key.clone()).or_insert(1.0);
+    }
+
     loop {
         clear_background(DARKGRAY);
         let delta_time = get_frame_time().min(0.05);
@@ -124,8 +143,90 @@ async fn main() {
                 let confirmed = creator.update_and_draw(delta_time);
                 if confirmed {
                     char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
-                    game_state = GameState::Connecting;
+                    game_state = GameState::Playing; // Skip connecting for now to test world
                 }
+            }
+            GameState::HitboxCalibration => {
+                // Clear and set 3D view
+                clear_background(BLACK);
+                
+                let keys: Vec<String> = {
+                    let mut k: Vec<String> = world_env.templates.keys().cloned().collect();
+                    k.sort();
+                    k
+                };
+                if calibration_selected_idx >= keys.len() { calibration_selected_idx = 0; }
+                let current_key = keys[calibration_selected_idx].clone();
+                
+                // Adjust multiplier
+                {
+                    let mult = hitbox_config.entry(current_key.clone()).or_insert(1.0);
+                    if is_key_pressed(KeyCode::Down) { calibration_selected_idx = (calibration_selected_idx + 1) % keys.len(); }
+                    if is_key_pressed(KeyCode::Up) { calibration_selected_idx = (calibration_selected_idx + keys.len() - 1) % keys.len(); }
+                    if is_key_down(KeyCode::Right) { *mult += 0.01; }
+                    if is_key_down(KeyCode::Left) { *mult = (*mult - 0.01).max(0.01); }
+                }
+
+                let current_mult = *hitbox_config.get(&current_key).unwrap();
+
+                if is_key_pressed(KeyCode::S) {
+                    let json = serde_json::to_string_pretty(&hitbox_config).unwrap();
+                    println!("--- HITBOX CONFIG EXPORT ---\n{}\n---------------------------", json);
+                }
+                if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
+                    game_state = GameState::Playing;
+                }
+
+                // Render selected model in center
+                let camera_pos = vec3(0.0, 5.0, 10.0);
+                let target = vec3(0.0, 0.0, 0.0);
+                set_camera(&Camera3D {
+                    position: camera_pos,
+                    target: target,
+                    up: vec3(0.0, 1.0, 0.0),
+                    fovy: 45.0,
+                    ..Default::default()
+                });
+
+                draw_grid(10, 2.0, GRAY, DARKGRAY);
+
+                if let Some(t) = world_env.templates.get(&current_key) {
+                    // Draw the model
+                    let rot = (get_time() * 0.5) as f32;
+                    let meshes = world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), rot, 2.0);
+                    for m in meshes { draw_mesh(&m); }
+
+                    // Draw the hitbox (red squares)
+                    let radius = t.footprint_radius * 2.0 * current_mult;
+                    let gs = world_env.grid_size;
+                    let cell_radius = (radius / gs).ceil() as i32;
+                    for dx in -cell_radius..=cell_radius {
+                        for dz in -cell_radius..=cell_radius {
+                            let wx = dx as f32 * gs;
+                            let wz = dz as f32 * gs;
+                            let d = (wx*wx + wz*wz).sqrt();
+                            if d <= radius {
+                                draw_cube(vec3(wx, 0.05, wz), vec3(gs * 0.95, 0.1, gs * 0.95), None, Color::new(1.0, 0.0, 0.0, 0.5));
+                            }
+                        }
+                    }
+                    
+                    // Draw radius circle for reference
+                    for i in 0..32 {
+                        let a1 = (i as f32 / 32.0) * 6.28;
+                        let a2 = ((i+1) as f32 / 32.0) * 6.28;
+                        draw_line_3d(vec3(a1.cos()*radius, 0.1, a1.sin()*radius), vec3(a2.cos()*radius, 0.1, a2.sin()*radius), RED);
+                    }
+                }
+
+                set_default_camera();
+                draw_rectangle(10.0, 10.0, 300.0, 160.0, Color::new(0.0, 0.0, 0.0, 0.7));
+                draw_text("HITBOX CALIBRATION", 20.0, 35.0, 24.0, YELLOW);
+                draw_text(&format!("MODEL: {}", current_key), 20.0, 65.0, 20.0, WHITE);
+                draw_text(&format!("RADIUS MULT: {:.2}", current_mult), 20.0, 85.0, 20.0, GREEN);
+                draw_text("UP/DOWN: Select Model", 20.0, 115.0, 18.0, LIGHTGRAY);
+                draw_text("LEFT/RIGHT: Adjust Radius", 20.0, 135.0, 18.0, LIGHTGRAY);
+                draw_text("S: Export to Console | F2/ESC: Exit", 20.0, 155.0, 18.0, LIGHTGRAY);
             }
             GameState::Connecting => {
                 // Simple connection screen
@@ -275,7 +376,11 @@ async fn main() {
                 }
 
                 game_camera.update(hero.pos);
-                let cast_event = handle_input(&mut hero, &game_camera, &mut effect_manager, &dummies, &assets);
+                let cast_event = handle_input(&mut hero, &game_camera, &mut effect_manager, &dummies, &assets, &world_env);
+
+                if is_key_pressed(KeyCode::F2) {
+                    game_state = GameState::HitboxCalibration;
+                }
 
                 // Send inputs to server
                 if let Some(ref client) = net_client {
@@ -305,14 +410,52 @@ async fn main() {
                     if hero.casting_timer > 0.0 {
                         hero.casting_timer -= delta_time;
                     } else {
+                        const PLAYER_RADIUS: f32 = 0.35;
                         let speed = hero.stats.get_movement_speed();
                         let to_target = hero.target_pos - hero.pos;
                         if to_target.length() > 0.1 {
-                            hero.pos += to_target.normalize() * speed * delta_time;
-                            hero.anim.set_state(AnimationState::Walk);
-                            hero.anim.set_direction(to_target);
+                            let desired = hero.pos + to_target.normalize() * speed * delta_time;
+                            let new_pos = world::pathfinding::slide_move(
+                                hero.pos, desired, PLAYER_RADIUS,
+                                world_env.grid_size, world_env.width, world_env.height,
+                                &world_env.walkability_grid,
+                            );
+                            if (new_pos - hero.pos).length() > 0.001 {
+                                hero.pos = new_pos;
+                                
+                                // ── World Boundary Clamping ──
+                                let margin = PLAYER_RADIUS + 0.1;
+                                let hw = (world_env.width as f32 * world_env.grid_size) / 2.0 - margin;
+                                let hh = (world_env.height as f32 * world_env.grid_size) / 2.0 - margin;
+                                hero.pos.x = hero.pos.x.clamp(-hw, hw);
+                                hero.pos.z = hero.pos.z.clamp(-hh, hh);
+
+                                hero.anim.set_state(AnimationState::Walk);
+                                hero.anim.set_direction(to_target);
+                                hero.stuck_timer = 0.0;
+                            } else {
+                                // Blocked — increment stuck timer
+                                hero.stuck_timer += delta_time;
+                                if hero.stuck_timer > 1.0 {
+                                    // Truly stuck for 1 second — clear path
+                                    hero.target_pos = hero.pos;
+                                    hero.current_path.clear();
+                                    hero.anim.set_state(AnimationState::Idle);
+                                } else {
+                                    // Just stay in walk animation (running against wall)
+                                    hero.anim.set_state(AnimationState::Walk);
+                                }
+                            }
                         } else {
-                            hero.anim.set_state(AnimationState::Idle);
+                            // Reached waypoint — advance path
+                            if !hero.current_path.is_empty() {
+                                hero.current_path.remove(0);
+                                if let Some(next) = hero.current_path.first() {
+                                    hero.target_pos = *next;
+                                }
+                            } else {
+                                hero.anim.set_state(AnimationState::Idle);
+                            }
                         }
                     }
                 } else {
@@ -323,7 +466,15 @@ async fn main() {
                             hero.anim.set_state(AnimationState::Walk);
                             hero.anim.set_direction(to_target);
                         } else {
-                            hero.anim.set_state(AnimationState::Idle);
+                            // Follow path locally even in networked mode for smoothness
+                            if !hero.current_path.is_empty() {
+                                hero.current_path.remove(0);
+                                if let Some(next) = hero.current_path.first() {
+                                    hero.target_pos = *next;
+                                }
+                            } else {
+                                hero.anim.set_state(AnimationState::Idle);
+                            }
                         }
                     }
                 }
@@ -333,25 +484,126 @@ async fn main() {
 
                 // Render
                 set_camera(&game_camera.camera);
-                draw_grid(20, 1.0, BLACK, GRAY);
+                // draw_grid(20, 1.0, BLACK, GRAY);
+                world_env.draw();
+
+                // ── F1: Pathfinding Debug Overlay ──────────────────────────
+                if is_key_pressed(KeyCode::F1) { debug_pathfinding = !debug_pathfinding; }
+
+                if debug_pathfinding {
+                    let gs = world_env.grid_size;
+                    let hw = world_env.width / 2;
+                    let hh = world_env.height / 2;
+
+                    // Draw blocked grid cells in semi-transparent red
+                    for x in 0..world_env.width {
+                        for z in 0..world_env.height {
+                            if !world_env.walkability_grid[x as usize][z as usize] {
+                                let wx = (x - hw) as f32 * gs;
+                                let wz = (z - hh) as f32 * gs;
+                                draw_cube(
+                                    vec3(wx, 0.05, wz),
+                                    vec3(gs * 0.95, 0.1, gs * 0.95),
+                                    None,
+                                    Color::new(1.0, 0.0, 0.0, 0.45),
+                                );
+                            }
+                        }
+                    }
+
+                    // Draw current path as connected yellow lines + waypoint spheres
+                    let path = &hero.current_path;
+                    let mut prev = hero.pos;
+                    // First segment: hero → current target
+                    draw_line_3d(
+                        hero.pos + vec3(0.0, 0.5, 0.0),
+                        hero.target_pos + vec3(0.0, 0.5, 0.0),
+                        YELLOW,
+                    );
+                    draw_sphere(hero.target_pos + vec3(0.0, 0.5, 0.0), 0.15, None, YELLOW);
+
+                    for waypoint in path.iter() {
+                        draw_line_3d(
+                            prev + vec3(0.0, 0.5, 0.0),
+                            *waypoint + vec3(0.0, 0.5, 0.0),
+                            YELLOW,
+                        );
+                        draw_sphere(*waypoint + vec3(0.0, 0.5, 0.0), 0.12, None, ORANGE);
+                        prev = *waypoint;
+                    }
+
+                    // Draw final destination
+                    if let Some(dest) = path.last() {
+                        draw_sphere(*dest + vec3(0.0, 0.6, 0.0), 0.2, None, LIME);
+                    }
+
+                    // Show grid lines faintly
+                    for x in -hw..=hw {
+                        draw_line_3d(
+                            vec3(x as f32 * gs, 0.02, -hh as f32 * gs),
+                            vec3(x as f32 * gs, 0.02,  hh as f32 * gs),
+                            Color::new(1.0, 1.0, 1.0, 0.08),
+                        );
+                    }
+                    for z in -hh..=hh {
+                        draw_line_3d(
+                            vec3(-hw as f32 * gs, 0.02, z as f32 * gs),
+                            vec3( hw as f32 * gs, 0.02, z as f32 * gs),
+                            Color::new(1.0, 1.0, 1.0, 0.08),
+                        );
+                    }
+                }
+                // ── End Debug Overlay ──────────────────────────────────────
 
                 if (hero.target_pos - hero.pos).length() > 0.1 {
-                    draw_cube_wires(hero.target_pos, vec3(0.5, 0.1, 0.5), GREEN);
+                    draw_cube_wires(hero.target_pos, vec3(0.5, 0.1, 0.5), Color::new(0.0, 0.8, 1.0, 1.0));
                 }
 
+                // Update Ogre animation
+                ogre_anim_timer += delta_time * 3.0;
+                let ogre_idle_frames = [0u32, 1u32];
+                let ogre_frame_idx = (ogre_anim_timer as usize % ogre_idle_frames.len()) as u32;
+                let ogre_col = ogre_idle_frames[ogre_frame_idx as usize];
+
+                // ─── Back-to-Front Sorting for Billboards ───
+                // This fixes the "transparent square blocks stuff" issue without needing complex shaders
+                struct BillboardItem {
+                    pos: Vec3,
+                    tex: Texture2D,
+                    src: Rect,
+                    size: f32,
+                    dist_sq: f32,
+                }
+                let mut billboard_list: Vec<BillboardItem> = Vec::new();
+                let cam_pos = game_camera.camera.position;
+
+                // Add Ogres
                 for d_pos in &dummies {
-                    let dummy_rect = Rect::new(0.0, 0.0, assets.dummy.width(), assets.dummy.height());
-                    draw_character_billboard(*d_pos, &assets.dummy, dummy_rect, game_camera.camera.position);
-                    draw_cube(*d_pos + vec3(0.0, 2.0, 0.0), vec3(1.0, 0.1, 0.1), None, RED);
+                    let fw = assets.dummy.width() / 29.0;
+                    let fh = assets.dummy.height() / 8.0;
+                    let src = Rect::new(ogre_col as f32 * fw, 0.0, fw, fh);
+                    billboard_list.push(BillboardItem {
+                        pos: *d_pos,
+                        tex: assets.dummy.clone(),
+                        src,
+                        size: 4.0,
+                        dist_sq: (cam_pos - *d_pos).length_squared(),
+                    });
                 }
 
-                // Draw local hero
+                // Add Hero
                 for tex in &char_textures.layers {
-                    let source_rect = hero.anim.get_source_rect(tex.width(), tex.height());
-                    draw_character_billboard(hero.pos, tex, source_rect, game_camera.camera.position);
+                    let src = hero.anim.get_source_rect(tex.width(), tex.height());
+                    billboard_list.push(BillboardItem {
+                        pos: hero.pos,
+                        tex: tex.clone(),
+                        src,
+                        size: 2.0,
+                        dist_sq: (cam_pos - hero.pos).length_squared(),
+                    });
                 }
 
-                // Draw remote players
+                // Add Remote Players
                 if let Some(ref client) = net_client {
                     if let Some(ref world) = client.latest_world {
                         for ps in &world.players {
@@ -361,15 +613,31 @@ async fn main() {
                                 if let Some(anim) = remote_anims.get(&ps.id) {
                                     for tex in textures {
                                         let src = anim.get_source_rect(tex.width(), tex.height());
-                                        draw_character_billboard(pos, tex, src, game_camera.camera.position);
+                                        billboard_list.push(BillboardItem {
+                                            pos,
+                                            tex: tex.clone(),
+                                            src,
+                                            size: 2.0,
+                                            dist_sq: (cam_pos - pos).length_squared(),
+                                        });
                                     }
                                 }
-                            } else {
-                                // Fallback: draw a colored cube for players whose textures haven't loaded
-                                draw_cube(pos + vec3(0.0, 1.0, 0.0), vec3(0.8, 1.6, 0.8), None, YELLOW);
                             }
                         }
                     }
+                }
+
+                // Sort back-to-front (highest distance first)
+                billboard_list.sort_by(|a, b| b.dist_sq.partial_cmp(&a.dist_sq).unwrap());
+
+                // Draw everything in order
+                for item in billboard_list {
+                    draw_character_billboard_ex(item.pos, &item.tex, item.src, cam_pos, item.size);
+                }
+
+                // Draw HP bars (separately as they are cubes)
+                for d_pos in &dummies {
+                    draw_cube(*d_pos + vec3(0.0, 3.5, 0.0), vec3(1.5, 0.1, 0.1), None, RED);
                 }
 
                 effect_manager.draw(game_camera.camera.position);
@@ -377,13 +645,13 @@ async fn main() {
                 match hero.targeting_state {
                     TargetingState::Aoe(_, radius) => {
                         if let Some(intersection) = game_camera.get_mouse_ray_intersection() {
-                            let segments = 32;
+                            let segments = 64;
                             for i in 0..segments {
-                                let a1 = (i as f32 / segments as f32) * std::f32::consts::PI * 2.0;
-                                let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::PI * 2.0;
-                                draw_line_3d(
-                                    intersection + vec3(a1.cos() * radius, 0.1, a1.sin() * radius),
-                                    intersection + vec3(a2.cos() * radius, 0.1, a2.sin() * radius), GREEN);
+                                let a1 = (i as f32 / segments as f32) * 6.28;
+                                let a2 = ((i + 1) as f32 / segments as f32) * 6.28;
+                                let p1 = intersection + vec3(a1.cos() * radius, 0.05, a1.sin() * radius);
+                                let p2 = intersection + vec3(a2.cos() * radius, 0.05, a2.sin() * radius);
+                                draw_line_3d(p1, p2, Color::new(1.0, 0.5, 0.0, 1.0)); // Dark Orange
                             }
                         }
                     }

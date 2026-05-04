@@ -1,16 +1,11 @@
 use macroquad::prelude::*;
-use crate::entities::player::{Hero, TargetingState, SpellId};
+use crate::entities::player::{Hero, TargetingState, SpellId, SpellCastEvent};
 use crate::core::camera::GameCamera;
 use crate::entities::effects::EffectManager;
 use crate::core::animation::AnimationState;
 use crate::Assets;
-
-/// Returned when the player casts a spell, so networking can forward it.
-pub struct SpellCastEvent {
-    pub spell: SpellId,
-    pub target_x: f32,
-    pub target_z: f32,
-}
+use crate::world::environment::WorldEnvironment;
+use crate::world::pathfinding::{find_path, line_of_sight, is_walkable_with_radius};
 
 pub fn handle_input(
     hero: &mut Hero,
@@ -18,6 +13,7 @@ pub fn handle_input(
     effect_manager: &mut EffectManager,
     dummies: &[Vec3],
     assets: &Assets,
+    env: &WorldEnvironment,
 ) -> Option<SpellCastEvent> {
     let mut cast_event: Option<SpellCastEvent> = None;
 
@@ -33,6 +29,7 @@ pub fn handle_input(
             TargetingState::Aoe(spell, _radius) => {
                 if let Some(intersection) = camera.get_mouse_ray_intersection() {
                     hero.target_pos = hero.pos;
+                    hero.current_path.clear();
                     hero.anim.set_direction(intersection - hero.pos);
                     hero.casting_timer = 0.5;
 
@@ -61,6 +58,7 @@ pub fn handle_input(
                     if let Some(idx) = target_idx {
                         let target_pos = dummies[idx];
                         hero.target_pos = hero.pos;
+                        hero.current_path.clear();
                         hero.anim.set_direction(target_pos - hero.pos);
                         hero.casting_timer = 0.5;
 
@@ -97,8 +95,26 @@ pub fn handle_input(
         if hero.targeting_state != TargetingState::None {
             hero.targeting_state = TargetingState::None;
         } else if hero.casting_timer <= 0.0 {
-            if let Some(intersection) = camera.get_mouse_ray_intersection() {
-                hero.target_pos = intersection;
+            if let Some(goal) = camera.get_mouse_ray_intersection() {
+                // Try direct movement first (Warcraft 3 style)
+                // Try direct movement first (Warcraft 3 style)
+                // Use pathfinding_grid (padded) so direct line only happens if there is enough clearance
+                if line_of_sight(hero.pos, goal, env.grid_size, env.width, env.height, &env.pathfinding_grid) {
+                    hero.target_pos = goal;
+                    hero.current_path.clear();
+                } else {
+                    // Obstacle in the way — use A* (on the padded grid)
+                    if let Some(path) = find_path(hero.pos, goal, env.grid_size, env.width, env.height, &env.pathfinding_grid) {
+                        hero.current_path = path;
+                        if let Some(first) = hero.current_path.first() {
+                            hero.target_pos = *first;
+                        }
+                    } else {
+                        // No path found — move directly (slide_move will catch the hits)
+                        hero.target_pos = goal;
+                        hero.current_path.clear();
+                    }
+                }
             }
         }
     }
