@@ -565,16 +565,18 @@ async fn main() {
                 let ogre_frame_idx = (ogre_anim_timer as usize % ogre_idle_frames.len()) as u32;
                 let ogre_col = ogre_idle_frames[ogre_frame_idx as usize];
 
-                // ─── Back-to-Front Sorting for Billboards ───
-                // This fixes the "transparent square blocks stuff" issue without needing complex shaders
-                struct BillboardItem {
+                // ─── Back-to-Front Sorting for EVERYTHING ───
+                // This handles Ogres, Hero, Players, and Particles in a single pass to fix all transparency issues
+                enum DrawKind {
+                    Billboard { tex: Texture2D, src: Rect, size: f32 },
+                    Particle { index: usize },
+                }
+                struct SortItem {
                     pos: Vec3,
-                    tex: Texture2D,
-                    src: Rect,
-                    size: f32,
+                    kind: DrawKind,
                     dist_sq: f32,
                 }
-                let mut billboard_list: Vec<BillboardItem> = Vec::new();
+                let mut sort_list: Vec<SortItem> = Vec::new();
                 let cam_pos = game_camera.camera.position;
 
                 // Add Ogres
@@ -582,11 +584,9 @@ async fn main() {
                     let fw = assets.dummy.width() / 29.0;
                     let fh = assets.dummy.height() / 8.0;
                     let src = Rect::new(ogre_col as f32 * fw, 0.0, fw, fh);
-                    billboard_list.push(BillboardItem {
+                    sort_list.push(SortItem {
                         pos: *d_pos,
-                        tex: assets.dummy.clone(),
-                        src,
-                        size: 4.0,
+                        kind: DrawKind::Billboard { tex: assets.dummy.clone(), src, size: 4.0 },
                         dist_sq: (cam_pos - *d_pos).length_squared(),
                     });
                 }
@@ -594,11 +594,9 @@ async fn main() {
                 // Add Hero
                 for tex in &char_textures.layers {
                     let src = hero.anim.get_source_rect(tex.width(), tex.height());
-                    billboard_list.push(BillboardItem {
+                    sort_list.push(SortItem {
                         pos: hero.pos,
-                        tex: tex.clone(),
-                        src,
-                        size: 2.0,
+                        kind: DrawKind::Billboard { tex: tex.clone(), src, size: 2.3 },
                         dist_sq: (cam_pos - hero.pos).length_squared(),
                     });
                 }
@@ -613,11 +611,9 @@ async fn main() {
                                 if let Some(anim) = remote_anims.get(&ps.id) {
                                     for tex in textures {
                                         let src = anim.get_source_rect(tex.width(), tex.height());
-                                        billboard_list.push(BillboardItem {
+                                        sort_list.push(SortItem {
                                             pos,
-                                            tex: tex.clone(),
-                                            src,
-                                            size: 2.0,
+                                            kind: DrawKind::Billboard { tex: tex.clone(), src, size: 2.0 },
                                             dist_sq: (cam_pos - pos).length_squared(),
                                         });
                                     }
@@ -627,20 +623,34 @@ async fn main() {
                     }
                 }
 
-                // Sort back-to-front (highest distance first)
-                billboard_list.sort_by(|a, b| b.dist_sq.partial_cmp(&a.dist_sq).unwrap());
-
-                // Draw everything in order
-                for item in billboard_list {
-                    draw_character_billboard_ex(item.pos, &item.tex, item.src, cam_pos, item.size);
+                // Add Particles
+                for (i, p) in effect_manager.particles.iter().enumerate() {
+                    sort_list.push(SortItem {
+                        pos: p.pos,
+                        kind: DrawKind::Particle { index: i },
+                        dist_sq: (cam_pos - p.pos).length_squared(),
+                    });
                 }
 
-                // Draw HP bars (separately as they are cubes)
+                // Sort back-to-front
+                sort_list.sort_by(|a, b| b.dist_sq.partial_cmp(&a.dist_sq).unwrap());
+
+                // Draw everything in order
+                for item in sort_list {
+                    match item.kind {
+                        DrawKind::Billboard { tex, src, size } => {
+                            draw_character_billboard_ex(item.pos, &tex, src, cam_pos, size);
+                        }
+                        DrawKind::Particle { index } => {
+                            effect_manager.draw_particle(&effect_manager.particles[index], cam_pos);
+                        }
+                    }
+                }
+
+                // Draw HP bars (separately as they are solid cubes)
                 for d_pos in &dummies {
                     draw_cube(*d_pos + vec3(0.0, 3.5, 0.0), vec3(1.5, 0.1, 0.1), None, RED);
                 }
-
-                effect_manager.draw(game_camera.camera.position);
 
                 match hero.targeting_state {
                     TargetingState::Aoe(_, radius) => {

@@ -214,7 +214,7 @@ impl WorldEnvironment {
 
         // ── 2. Procedural decoration ──────────────────────────────────────────
         let trees  = ["tree_a", "tree_b", "tree_c"];
-        let rocks  = ["rock_a", "rock_b", "rock_c"];
+        let rocks  = ["rock_a", "rock_c"]; // rock_b is now a mountain-sized landmark
         let smalls = ["flower_a", "flower_b", "flower_c", "mushroom", "shroom2", "plant"];
 
         for _ in 0..180 {
@@ -235,14 +235,12 @@ impl WorldEnvironment {
             let rot  = rng.gen_range(0.0_f32..6.28);
             let roll = rng.gen_range(0.0_f32..1.0);
 
-            let (key, blocks): (&str, bool) = if roll < 0.30 {
+            let (key, blocks): (&str, bool) = if roll < 0.40 {
                 (trees[rng.gen_range(0..trees.len())], true)
-            } else if roll < 0.50 {
+            } else if roll < 0.60 {
                 (rocks[rng.gen_range(0..rocks.len())], true)
-            } else if roll < 0.80 {
-                (smalls[rng.gen_range(0..smalls.len())], false)
             } else {
-                ("stump", false)
+                (smalls[rng.gen_range(0..smalls.len())], false)
             };
 
             if let Some(t) = templates.get(key) {
@@ -250,11 +248,22 @@ impl WorldEnvironment {
                     k if k.starts_with("tree")  => 2.0 + rng.gen_range(-0.3_f32..0.5),
                     k if k.starts_with("rock")  => 1.5 + rng.gen_range(-0.2_f32..0.3),
                     k if k.starts_with("stone") => 1.5 + rng.gen_range(-0.2_f32..0.3),
-                    "stump"                      => 1.2 + rng.gen_range(-0.1_f32..0.2),
                     _                            => 0.8 + rng.gen_range(-0.1_f32..0.2),
                 };
                 let pos = vec3(wx, 0.0, wz);
-                meshes.extend(instantiate(t, pos, rot, base_scale));
+                
+                // If it's a small object (flower/plant), spawn a cluster
+                if !blocks && key.starts_with("flower") {
+                    let cluster_count = rng.gen_range(3..6);
+                    for _ in 0..cluster_count {
+                        let offset = vec3(rng.gen_range(-0.4..0.4), 0.0, rng.gen_range(-0.4..0.4));
+                        let c_rot = rng.gen_range(0.0..6.28);
+                        let c_scale = base_scale * rng.gen_range(0.8..1.2);
+                        meshes.extend(instantiate(t, pos + offset, c_rot, c_scale));
+                    }
+                } else {
+                    meshes.extend(instantiate(t, pos, rot, base_scale));
+                }
 
                 if blocks {
                     let multiplier = radius_overrides.get(key).cloned().unwrap_or(1.0);
@@ -264,7 +273,21 @@ impl WorldEnvironment {
             }
         }
 
-        // ── 3. Camp ───────────────────────────────────────────────────────────
+        // ── 3. Landmarks (The Mountain) ──────────────────────────────────────
+        if let Some(t) = templates.get("rock_b") {
+            let wx = rng.gen_range(-15.0..15.0);
+            let wz = rng.gen_range(-15.0..15.0);
+            let pos = vec3(wx, 0.0, wz);
+            let scale = 3.0; // Scaled down from mountain size
+            let rot = rng.gen_range(0.0..6.28);
+            meshes.extend(instantiate(t, pos, rot, scale));
+            
+            let mult = radius_overrides.get("rock_b").cloned().unwrap_or(1.0);
+            let r = t.footprint_radius * scale * mult;
+            block_radius(&mut walkability_grid, pos, r, grid_size, grid_width, grid_height);
+        }
+
+        // ── 4. Camp ───────────────────────────────────────────────────────────
         let tent_pos = vec3(6.0, 0.0, 4.0);
         let fire_pos = vec3(4.0, 0.0, 4.0);
         if let Some(t) = templates.get("tent") {

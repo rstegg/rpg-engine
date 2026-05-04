@@ -66,12 +66,12 @@ impl EffectManager {
 
         // Spawn a static hit effect at the target position
         self.particles.push(Particle {
-            pos: target_pos + vec3(0.0, 1.5, 0.0), // Raised slightly to 1.5 to guarantee it doesn't clip into the floor
+            pos: target_pos + vec3(0.0, 0.5, 0.0), // Lowered from 1.5 to align with the new Ogre scale
             velocity: vec3(0.0, 0.0, 0.0),
             texture: tex,
             timer: 99.0, // Lifespan is controlled by the animation length
             rotation: 0.0,
-            size: 3.5, // Large impact effects
+            size: 2.5, // Reduced from 3.5 to fit the scene better
             columns,
             current_frame: 0.0,
             fps,
@@ -94,67 +94,63 @@ impl EffectManager {
         });
     }
 
+    pub fn draw_particle(&self, p: &Particle, camera_pos: Vec3) {
+        // Calculate aspect ratio so the frame isn't squashed or cut off
+        let tex_w = p.texture.width();
+        let tex_h = p.texture.height();
+        let frame_w_pixels = tex_w / p.columns as f32;
+        let aspect_ratio = if tex_h > 0.0 { frame_w_pixels / tex_h } else { 1.0 };
+        
+        let size = vec2(p.size * aspect_ratio, p.size);
+        let half_w = size.x / 2.0;
+        let half_h = size.y / 2.0;
+
+        // All billboards use a fixed rotation to stay parallel to the camera plane
+        let billboard_rot = 0.0;
+        let rot_y = macroquad::math::Mat4::from_rotation_y(billboard_rot);
+        // Apply Z/X rotation if needed (like 45 deg tilt for arrows)
+        let rot_z = macroquad::math::Mat4::from_rotation_z(p.rotation);
+        let rot = rot_y * rot_z;
+
+        let center = p.pos + vec3(0.0, half_h * 0.5, 0.0);
+        let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
+        let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
+        let p3 = center + rot.transform_point3(vec3( half_w,  half_h, 0.0));
+        let p4 = center + rot.transform_point3(vec3(-half_w,  half_h, 0.0));
+
+        // UV Mapping for spritesheet
+        let frame_idx = if p.looping {
+            (p.current_frame as u32) % p.columns
+        } else {
+            (p.current_frame as u32).min(p.columns - 1)
+        };
+
+        let u_width = 1.0 / p.columns as f32;
+        let u_min = frame_idx as f32 * u_width;
+        let u_max = u_min + u_width;
+        let v_min = 0.0;
+        let v_max = 1.0;
+
+        let vertices = vec![
+            macroquad::models::Vertex::new2(p1, vec2(u_min, v_max), WHITE),
+            macroquad::models::Vertex::new2(p2, vec2(u_max, v_max), WHITE),
+            macroquad::models::Vertex::new2(p3, vec2(u_max, v_min), WHITE),
+            macroquad::models::Vertex::new2(p4, vec2(u_min, v_min), WHITE),
+        ];
+        let indices = vec![0, 1, 2, 0, 2, 3];
+
+        let mesh = macroquad::models::Mesh {
+            vertices,
+            indices,
+            texture: Some(p.texture.clone()),
+        };
+        
+        draw_mesh(&mesh);
+    }
+
     pub fn draw(&self, camera_pos: Vec3) {
         for p in &self.particles {
-            // Calculate aspect ratio so the frame isn't squashed or cut off
-            let tex_w = p.texture.width();
-            let tex_h = p.texture.height();
-            let frame_w_pixels = tex_w / p.columns as f32;
-            let aspect_ratio = if tex_h > 0.0 { frame_w_pixels / tex_h } else { 1.0 };
-            
-            let size = vec2(p.size * aspect_ratio, p.size);
-            let half_w = size.x / 2.0;
-            let half_h = size.y / 2.0;
-
-            // Billboard rotation towards camera
-            let billboard_rot = f32::atan2(camera_pos.x - p.pos.x, camera_pos.z - p.pos.z);
-            let rot_y = macroquad::math::Mat4::from_rotation_y(billboard_rot);
-            // Apply Z/X rotation if needed (like 45 deg tilt for arrows)
-            let rot_z = macroquad::math::Mat4::from_rotation_z(p.rotation);
-            let rot = rot_y * rot_z;
-
-            let center = p.pos;
-            let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
-            let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
-            let p3 = center + rot.transform_point3(vec3( half_w,  half_h, 0.0));
-            let p4 = center + rot.transform_point3(vec3(-half_w,  half_h, 0.0));
-
-            // UV Mapping for spritesheet
-            let frame_idx = if p.looping {
-                (p.current_frame as u32) % p.columns
-            } else {
-                (p.current_frame as u32).min(p.columns - 1)
-            };
-
-            let u_width = 1.0 / p.columns as f32;
-            let u_min = frame_idx as f32 * u_width;
-            let u_max = u_min + u_width;
-            let v_min = 0.0;
-            let v_max = 1.0;
-
-            let vertices = vec![
-                macroquad::models::Vertex::new2(p1, vec2(u_min, v_max), WHITE),
-                macroquad::models::Vertex::new2(p2, vec2(u_max, v_max), WHITE),
-                macroquad::models::Vertex::new2(p3, vec2(u_max, v_min), WHITE),
-                macroquad::models::Vertex::new2(p4, vec2(u_min, v_min), WHITE),
-            ];
-            let indices = vec![0, 1, 2, 0, 2, 3];
-
-            let mesh = macroquad::models::Mesh {
-                vertices,
-                indices,
-                texture: Some(p.texture.clone()),
-            };
-            
-            draw_mesh(&mesh);
-
-            // DEBUG: Draw a faint wireframe box around the billboard so the user can see exactly what the engine considers the "full frame"
-            if !p.looping {
-                draw_line_3d(p1, p2, Color::new(1.0, 0.0, 0.0, 0.5));
-                draw_line_3d(p2, p3, Color::new(1.0, 0.0, 0.0, 0.5));
-                draw_line_3d(p3, p4, Color::new(1.0, 0.0, 0.0, 0.5));
-                draw_line_3d(p4, p1, Color::new(1.0, 0.0, 0.0, 0.5));
-            }
+            self.draw_particle(p, camera_pos);
         }
     }
 }

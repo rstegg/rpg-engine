@@ -184,14 +184,18 @@ pub fn draw_character_billboard_ex(
     camera_pos: Vec3,
     base_size: f32,
 ) {
-    let size = vec2(base_size, base_size); 
+    // Respect aspect ratio of the sprite frame to prevent squishing
+    let aspect_ratio = source_rect.w / source_rect.h;
+    let size = vec2(base_size * aspect_ratio, base_size); 
     let half_w = size.x / 2.0;
     let half_h = size.y / 2.0;
 
-    let billboard_rot = f32::atan2(camera_pos.x - pos.x, camera_pos.z - pos.z);
+    // All billboards use a fixed rotation to stay parallel to the camera plane.
+    // This fixes the "angling" issue at the edges of the screen.
+    let billboard_rot = 0.0;
     let rot = macroquad::math::Mat4::from_rotation_y(billboard_rot);
 
-    let center = pos + vec3(0.0, half_h, 0.0);
+    let center = pos + vec3(0.0, half_h * 0.5, 0.0);
 
     let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
     let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
