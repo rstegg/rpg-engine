@@ -45,9 +45,9 @@ pub fn draw_aoe_target(center: Vec3, radius: f32, time: f32) {
     let rotation = time * 0.65;
     let y = 0.075;
 
-    draw_fat_ring(center, radius, y, 96, 0.045, TARGET_SHADOW);
-    draw_fat_ring(center, radius, y + 0.015, 96, 0.03, TARGET_ORANGE);
-    draw_fat_ring(center, radius * 0.62, y + 0.02, 72, 0.02, MOVE_ORANGE_GLOW);
+    draw_fat_ring(center, radius, y, 96, 0.075, TARGET_SHADOW);
+    draw_fat_ring(center, radius, y + 0.015, 96, 0.055, TARGET_ORANGE);
+    draw_fat_ring(center, radius * 0.62, y + 0.02, 72, 0.04, MOVE_ORANGE_GLOW);
 
     for i in 0..4 {
         let angle = rotation + i as f32 * std::f32::consts::FRAC_PI_2;
@@ -55,19 +55,19 @@ pub fn draw_aoe_target(center: Vec3, radius: f32, time: f32) {
         let side = vec3(-dir.z, 0.0, dir.x);
         let outer = center + dir * radius;
         let inner = center + dir * (radius * 0.72);
-        draw_line_3d(
-            inner + vec3(0.0, y + 0.035, 0.0),
-            outer + vec3(0.0, y + 0.035, 0.0),
+        draw_fat_line_3d(inner, outer, y + 0.035, 0.045, TARGET_ORANGE);
+        draw_fat_line_3d(
+            outer - dir * 0.26 + side * 0.18,
+            outer,
+            y + 0.035,
+            0.04,
             TARGET_ORANGE,
         );
-        draw_line_3d(
-            outer - dir * 0.26 + side * 0.18 + vec3(0.0, y + 0.035, 0.0),
-            outer + vec3(0.0, y + 0.035, 0.0),
-            TARGET_ORANGE,
-        );
-        draw_line_3d(
-            outer - dir * 0.26 - side * 0.18 + vec3(0.0, y + 0.035, 0.0),
-            outer + vec3(0.0, y + 0.035, 0.0),
+        draw_fat_line_3d(
+            outer - dir * 0.26 - side * 0.18,
+            outer,
+            y + 0.035,
+            0.04,
             TARGET_ORANGE,
         );
     }
@@ -76,11 +76,7 @@ pub fn draw_aoe_target(center: Vec3, radius: f32, time: f32) {
         let angle = rotation * -1.35 + i as f32 * std::f32::consts::FRAC_PI_2;
         let p1 = center + vec3(angle.cos(), 0.0, angle.sin()) * radius * 0.18;
         let p2 = center + vec3(angle.cos(), 0.0, angle.sin()) * radius * 0.46;
-        draw_line_3d(
-            p1 + vec3(0.0, y + 0.05, 0.0),
-            p2 + vec3(0.0, y + 0.05, 0.0),
-            MOVE_ORANGE_GLOW,
-        );
+        draw_fat_line_3d(p1, p2, y + 0.05, 0.035, MOVE_ORANGE_GLOW);
     }
 }
 
@@ -98,21 +94,12 @@ fn draw_move_marker(marker: &MoveMarker) {
         alpha * 0.7,
     );
 
-    draw_fat_ring(marker.pos, 0.38 + t * 0.28, y, 48, 0.025, glow_color);
-    draw_fat_ring(
-        marker.pos,
-        0.18 + t * 0.12,
-        y + 0.015,
-        40,
-        0.018,
-        base_color,
-    );
+    draw_fat_ring(marker.pos, 0.38 + t * 0.28, y, 48, 0.055, glow_color);
+    draw_fat_ring(marker.pos, 0.18 + t * 0.12, y + 0.015, 40, 0.04, base_color);
 
     let tip = marker.pos + vec3(0.0, y + 0.08, 0.0);
     let tail = marker.pos + vec3(0.0, drop, 0.0);
-    draw_line_3d(tail, tip, base_color);
-    draw_line_3d(tail + vec3(0.03, 0.0, 0.03), tip, base_color);
-    draw_line_3d(tail + vec3(-0.03, 0.0, -0.03), tip, base_color);
+    draw_fat_vertical_line(tail, tip, 0.055, base_color);
 
     let head_y = y + 0.36;
     let head = marker.pos + vec3(0.0, head_y, 0.0);
@@ -123,11 +110,33 @@ fn draw_move_marker(marker: &MoveMarker) {
         std::f32::consts::PI * 1.5,
     ] {
         let outward = vec3(angle.cos(), 0.0, angle.sin());
-        draw_line_3d(
+        draw_fat_vertical_line(
             head + outward * 0.34 + vec3(0.0, 0.28, 0.0),
             tip,
+            0.04,
             base_color,
         );
+    }
+}
+
+fn draw_fat_line_3d(start: Vec3, end: Vec3, y: f32, width: f32, color: Color) {
+    let delta = end - start;
+    let side = vec3(-delta.z, 0.0, delta.x).normalize_or_zero() * width;
+    let lift = vec3(0.0, y, 0.0);
+    draw_line_3d(start + lift, end + lift, color);
+    draw_line_3d(start + side + lift, end + side + lift, color);
+    draw_line_3d(start - side + lift, end - side + lift, color);
+}
+
+fn draw_fat_vertical_line(start: Vec3, end: Vec3, width: f32, color: Color) {
+    for offset in [
+        Vec3::ZERO,
+        vec3(width, 0.0, 0.0),
+        vec3(-width, 0.0, 0.0),
+        vec3(0.0, 0.0, width),
+        vec3(0.0, 0.0, -width),
+    ] {
+        draw_line_3d(start + offset, end + offset, color);
     }
 }
 

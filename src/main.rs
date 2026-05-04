@@ -1,21 +1,22 @@
 mod core;
 mod entities;
+mod net;
 mod systems;
 mod ui;
-mod net;
 mod world;
 
-use macroquad::prelude::*;
 use core::animation::*;
-use entities::player::*;
-use entities::character::*;
 use core::camera::*;
-use systems::input::*;
-use systems::indicators::*;
+use entities::character::*;
 use entities::effects::*;
-use ui::character_creator::*;
+use entities::player::*;
+use macroquad::prelude::*;
 use net::client::NetClient;
 use net::protocol::*;
+use systems::cluster_editor::*;
+use systems::indicators::*;
+use systems::input::*;
+use ui::character_creator::*;
 
 pub struct Assets {
     pub icon_q: Texture2D,
@@ -36,12 +37,13 @@ enum GameState {
     Connecting,
     Playing,
     HitboxCalibration,
+    ClusterEditor,
 }
 
 async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
     let tex = load_texture(path).await.unwrap_or_else(|_| {
         let mut bytes: Vec<u8> = Vec::with_capacity(64 * 64 * 4);
-        for _ in 0..(64*64) {
+        for _ in 0..(64 * 64) {
             bytes.push((color.r * 255.0) as u8);
             bytes.push((color.g * 255.0) as u8);
             bytes.push((color.b * 255.0) as u8);
@@ -99,17 +101,20 @@ async fn main() {
         stuck_timer: 0.0,
     };
 
-    let mut hitbox_config: std::collections::HashMap<String, f32> = match std::fs::read_to_string("hitbox_config.json") {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => std::collections::HashMap::new(),
-    };
+    let mut hitbox_config: std::collections::HashMap<String, f32> =
+        match std::fs::read_to_string("hitbox_config.json") {
+            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+            Err(_) => std::collections::HashMap::new(),
+        };
 
-    let world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
+    let mut world_env =
+        world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
     let mut debug_pathfinding = false;
 
     let mut game_camera = GameCamera::new(hero.pos);
     let mut effect_manager = EffectManager::new();
     let mut indicator_manager = IndicatorManager::new();
+    let mut cluster_editor = ClusterEditor::new();
 
     // Spawn some test dummies
     let dummies = vec![
@@ -121,8 +126,10 @@ async fn main() {
     let mut game_state = GameState::CharacterCreation;
     let mut net_client: Option<NetClient> = None;
     let mut server_addr = String::from("127.0.0.1:7878");
-    let mut remote_textures: std::collections::HashMap<u64, Vec<Texture2D>> = std::collections::HashMap::new();
-    let mut remote_anims: std::collections::HashMap<u64, AnimationManager> = std::collections::HashMap::new();
+    let mut remote_textures: std::collections::HashMap<u64, Vec<Texture2D>> =
+        std::collections::HashMap::new();
+    let mut remote_anims: std::collections::HashMap<u64, AnimationManager> =
+        std::collections::HashMap::new();
     let mut spawned_effect_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
     // Calibration state
@@ -139,41 +146,59 @@ async fn main() {
         match game_state {
             GameState::CharacterCreation => {
                 if creator.needs_reload {
-                    creator.preview_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await.layers;
+                    creator.preview_textures =
+                        CharacterTextures::from_appearance(&creator.appearance, &catalog)
+                            .await
+                            .layers;
                     creator.needs_reload = false;
                 }
                 let confirmed = creator.update_and_draw(delta_time);
                 if confirmed {
-                    char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
+                    char_textures =
+                        CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
                     game_state = GameState::Playing; // Skip connecting for now to test world
                 }
             }
             GameState::HitboxCalibration => {
                 // Clear and set 3D view
                 clear_background(BLACK);
-                
+
                 let keys: Vec<String> = {
                     let mut k: Vec<String> = world_env.templates.keys().cloned().collect();
                     k.sort();
                     k
                 };
-                if calibration_selected_idx >= keys.len() { calibration_selected_idx = 0; }
+                if calibration_selected_idx >= keys.len() {
+                    calibration_selected_idx = 0;
+                }
                 let current_key = keys[calibration_selected_idx].clone();
-                
+
                 // Adjust multiplier
                 {
                     let mult = hitbox_config.entry(current_key.clone()).or_insert(1.0);
-                    if is_key_pressed(KeyCode::Down) { calibration_selected_idx = (calibration_selected_idx + 1) % keys.len(); }
-                    if is_key_pressed(KeyCode::Up) { calibration_selected_idx = (calibration_selected_idx + keys.len() - 1) % keys.len(); }
-                    if is_key_down(KeyCode::Right) { *mult += 0.01; }
-                    if is_key_down(KeyCode::Left) { *mult = (*mult - 0.01).max(0.01); }
+                    if is_key_pressed(KeyCode::Down) {
+                        calibration_selected_idx = (calibration_selected_idx + 1) % keys.len();
+                    }
+                    if is_key_pressed(KeyCode::Up) {
+                        calibration_selected_idx =
+                            (calibration_selected_idx + keys.len() - 1) % keys.len();
+                    }
+                    if is_key_down(KeyCode::Right) {
+                        *mult += 0.01;
+                    }
+                    if is_key_down(KeyCode::Left) {
+                        *mult = (*mult - 0.01).max(0.01);
+                    }
                 }
 
                 let current_mult = *hitbox_config.get(&current_key).unwrap();
 
                 if is_key_pressed(KeyCode::S) {
                     let json = serde_json::to_string_pretty(&hitbox_config).unwrap();
-                    println!("--- HITBOX CONFIG EXPORT ---\n{}\n---------------------------", json);
+                    println!(
+                        "--- HITBOX CONFIG EXPORT ---\n{}\n---------------------------",
+                        json
+                    );
                 }
                 if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
                     game_state = GameState::Playing;
@@ -196,7 +221,9 @@ async fn main() {
                     // Draw the model
                     let rot = (get_time() * 0.5) as f32;
                     let meshes = world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), rot, 2.0);
-                    for m in meshes { draw_mesh(&m); }
+                    for m in meshes {
+                        draw_mesh(&m);
+                    }
 
                     // Draw the hitbox (red squares)
                     let radius = t.footprint_radius * 2.0 * current_mult;
@@ -206,18 +233,27 @@ async fn main() {
                         for dz in -cell_radius..=cell_radius {
                             let wx = dx as f32 * gs;
                             let wz = dz as f32 * gs;
-                            let d = (wx*wx + wz*wz).sqrt();
+                            let d = (wx * wx + wz * wz).sqrt();
                             if d <= radius {
-                                draw_cube(vec3(wx, 0.05, wz), vec3(gs * 0.95, 0.1, gs * 0.95), None, Color::new(1.0, 0.0, 0.0, 0.5));
+                                draw_cube(
+                                    vec3(wx, 0.05, wz),
+                                    vec3(gs * 0.95, 0.1, gs * 0.95),
+                                    None,
+                                    Color::new(1.0, 0.0, 0.0, 0.5),
+                                );
                             }
                         }
                     }
-                    
+
                     // Draw radius circle for reference
                     for i in 0..32 {
                         let a1 = (i as f32 / 32.0) * 6.28;
-                        let a2 = ((i+1) as f32 / 32.0) * 6.28;
-                        draw_line_3d(vec3(a1.cos()*radius, 0.1, a1.sin()*radius), vec3(a2.cos()*radius, 0.1, a2.sin()*radius), RED);
+                        let a2 = ((i + 1) as f32 / 32.0) * 6.28;
+                        draw_line_3d(
+                            vec3(a1.cos() * radius, 0.1, a1.sin() * radius),
+                            vec3(a2.cos() * radius, 0.1, a2.sin() * radius),
+                            RED,
+                        );
                     }
                 }
 
@@ -225,23 +261,55 @@ async fn main() {
                 draw_rectangle(10.0, 10.0, 300.0, 160.0, Color::new(0.0, 0.0, 0.0, 0.7));
                 draw_text("HITBOX CALIBRATION", 20.0, 35.0, 24.0, YELLOW);
                 draw_text(&format!("MODEL: {}", current_key), 20.0, 65.0, 20.0, WHITE);
-                draw_text(&format!("RADIUS MULT: {:.2}", current_mult), 20.0, 85.0, 20.0, GREEN);
+                draw_text(
+                    &format!("RADIUS MULT: {:.2}", current_mult),
+                    20.0,
+                    85.0,
+                    20.0,
+                    GREEN,
+                );
                 draw_text("UP/DOWN: Select Model", 20.0, 115.0, 18.0, LIGHTGRAY);
                 draw_text("LEFT/RIGHT: Adjust Radius", 20.0, 135.0, 18.0, LIGHTGRAY);
-                draw_text("S: Export to Console | F2/ESC: Exit", 20.0, 155.0, 18.0, LIGHTGRAY);
+                draw_text(
+                    "S: Export to Console | F2/ESC: Exit",
+                    20.0,
+                    155.0,
+                    18.0,
+                    LIGHTGRAY,
+                );
             }
             GameState::Connecting => {
                 // Simple connection screen
                 let sw = screen_width();
                 let sh = screen_height();
                 draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.08, 0.08, 0.12, 1.0));
-                draw_text("CONNECT TO SERVER", sw / 2.0 - 140.0, sh / 2.0 - 60.0, 32.0, WHITE);
-                draw_text(&format!("Address: {}", server_addr), sw / 2.0 - 140.0, sh / 2.0 - 20.0, 22.0, GRAY);
-                draw_text("Press ENTER to connect, or ESCAPE for offline", sw / 2.0 - 200.0, sh / 2.0 + 20.0, 18.0, Color::new(0.6, 0.6, 0.8, 1.0));
+                draw_text(
+                    "CONNECT TO SERVER",
+                    sw / 2.0 - 140.0,
+                    sh / 2.0 - 60.0,
+                    32.0,
+                    WHITE,
+                );
+                draw_text(
+                    &format!("Address: {}", server_addr),
+                    sw / 2.0 - 140.0,
+                    sh / 2.0 - 20.0,
+                    22.0,
+                    GRAY,
+                );
+                draw_text(
+                    "Press ENTER to connect, or ESCAPE for offline",
+                    sw / 2.0 - 200.0,
+                    sh / 2.0 + 20.0,
+                    18.0,
+                    Color::new(0.6, 0.6, 0.8, 1.0),
+                );
 
                 // Type server address
                 if let Some(c) = get_char_pressed() {
-                    if c.is_ascii() && !c.is_control() { server_addr.push(c); }
+                    if c.is_ascii() && !c.is_control() {
+                        server_addr.push(c);
+                    }
                 }
                 if is_key_pressed(KeyCode::Backspace) && !server_addr.is_empty() {
                     server_addr.pop();
@@ -250,20 +318,91 @@ async fn main() {
                 if is_key_pressed(KeyCode::Enter) {
                     let app = &creator.appearance;
                     let net_app = CharacterAppearanceNet {
-                        skin: app.skin.clone(), shoes: app.shoes.clone(),
-                        clothes: app.clothes.clone(), gloves: app.gloves.clone(),
-                        hairstyle: app.hairstyle.clone(), facial_hair: app.facial_hair.clone(),
-                        eye_color: app.eye_color.clone(), eyelashes: app.eyelashes.clone(),
-                        headgear: app.headgear.clone(), addon: app.addon.clone(),
+                        skin: app.skin.clone(),
+                        shoes: app.shoes.clone(),
+                        clothes: app.clothes.clone(),
+                        gloves: app.gloves.clone(),
+                        hairstyle: app.hairstyle.clone(),
+                        facial_hair: app.facial_hair.clone(),
+                        eye_color: app.eye_color.clone(),
+                        eyelashes: app.eyelashes.clone(),
+                        headgear: app.headgear.clone(),
+                        addon: app.addon.clone(),
                     };
                     match NetClient::connect(&server_addr, "Player", net_app) {
-                        Ok(client) => { net_client = Some(client); game_state = GameState::Playing; }
-                        Err(e) => { eprintln!("Connection failed: {}", e); }
+                        Ok(client) => {
+                            net_client = Some(client);
+                            game_state = GameState::Playing;
+                        }
+                        Err(e) => {
+                            eprintln!("Connection failed: {}", e);
+                        }
                     }
                 }
                 if is_key_pressed(KeyCode::Escape) {
                     game_state = GameState::Playing; // Offline mode
                 }
+            }
+            GameState::ClusterEditor => {
+                let editor_action = cluster_editor.update();
+
+                if let Some(asset) = cluster_editor.selected_asset() {
+                    if !world_env.templates.contains_key(&asset.key) {
+                        if let Some(template) =
+                            world::environment::load_glb_template(&asset.path).await
+                        {
+                            world_env.templates.insert(asset.key.clone(), template);
+                        }
+                    }
+                }
+
+                match editor_action {
+                    EditorAction::Exit => {
+                        game_state = GameState::Playing;
+                        continue;
+                    }
+                    EditorAction::PlayTest => {
+                        world_env = world::environment::WorldEnvironment::new(
+                            20,
+                            20,
+                            hitbox_config.clone(),
+                        )
+                        .await;
+                        for placement in cluster_editor.all_placements() {
+                            if !world_env.templates.contains_key(&placement.model) {
+                                if let Some(template) = world::environment::load_glb_template(
+                                    &format!("assets/world_models/{}", placement.file),
+                                )
+                                .await
+                                {
+                                    world_env
+                                        .templates
+                                        .insert(placement.model.clone(), template);
+                                }
+                            }
+                            world_env.add_placement(&placement, &hitbox_config);
+                        }
+                        let start = cluster_editor.playtest_start();
+                        hero.pos = start;
+                        hero.target_pos = start;
+                        hero.current_path.clear();
+                        game_camera = GameCamera::new(hero.pos);
+                        game_state = GameState::Playing;
+                        continue;
+                    }
+                    EditorAction::None => {}
+                }
+
+                set_camera(cluster_editor.camera());
+                world_env.draw();
+                cluster_editor.draw_3d(&world_env.templates);
+
+                set_default_camera();
+                let template_loaded = cluster_editor
+                    .selected_asset()
+                    .map(|asset| world_env.templates.contains_key(&asset.key))
+                    .unwrap_or(false);
+                cluster_editor.draw_ui(template_loaded);
             }
             GameState::Playing => {
                 if is_key_pressed(KeyCode::C) {
@@ -277,7 +416,9 @@ async fn main() {
                     client.update();
 
                     // Load textures for newly joined remote players
-                    let new_players: Vec<(u64, CharacterAppearanceNet)> = client.remote_appearances.iter()
+                    let new_players: Vec<(u64, CharacterAppearanceNet)> = client
+                        .remote_appearances
+                        .iter()
                         .filter(|(id, _)| !remote_textures.contains_key(id))
                         .map(|(id, app)| (*id, app.clone()))
                         .collect();
@@ -285,13 +426,19 @@ async fn main() {
                     for (id, app) in new_players {
                         // Convert net appearance to local CharacterAppearance for texture loading
                         let local_app = CharacterAppearance {
-                            skin: app.skin.clone(), shoes: app.shoes.clone(),
-                            clothes: app.clothes.clone(), gloves: app.gloves.clone(),
-                            hairstyle: app.hairstyle.clone(), facial_hair: app.facial_hair.clone(),
-                            eye_color: app.eye_color.clone(), eyelashes: app.eyelashes.clone(),
-                            headgear: app.headgear.clone(), addon: app.addon.clone(),
+                            skin: app.skin.clone(),
+                            shoes: app.shoes.clone(),
+                            clothes: app.clothes.clone(),
+                            gloves: app.gloves.clone(),
+                            hairstyle: app.hairstyle.clone(),
+                            facial_hair: app.facial_hair.clone(),
+                            eye_color: app.eye_color.clone(),
+                            eyelashes: app.eyelashes.clone(),
+                            headgear: app.headgear.clone(),
+                            addon: app.addon.clone(),
                         };
-                        let textures = CharacterTextures::from_appearance(&local_app, &catalog).await;
+                        let textures =
+                            CharacterTextures::from_appearance(&local_app, &catalog).await;
                         remote_textures.insert(id, textures.layers);
                     }
 
@@ -307,7 +454,7 @@ async fn main() {
                                     hero.pos = vec3(ps.x, 0.0, ps.z);
                                     hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
                                     hero.casting_timer = ps.casting_timer;
-                                    
+
                                     // Sync local animation with server authority
                                     let server_state = match ps.anim_state {
                                         0 => AnimationState::Idle,
@@ -318,15 +465,21 @@ async fn main() {
                                         9 => AnimationState::CarryIdle,
                                         _ => AnimationState::Idle,
                                     };
-                                    
-                                    // Only override if the server says we are doing an action, 
+
+                                    // Only override if the server says we are doing an action,
                                     // or if we aren't currently playing a local action animation
-                                    if ps.anim_state > 1 || hero.anim.state == AnimationState::Idle || hero.anim.state == AnimationState::Walk {
+                                    if ps.anim_state > 1
+                                        || hero.anim.state == AnimationState::Idle
+                                        || hero.anim.state == AnimationState::Walk
+                                    {
                                         hero.anim.set_state(server_state);
                                     }
                                 } else {
                                     let anim = remote_anims.entry(ps.id).or_insert_with(|| {
-                                        AnimationManager::new(SpriteSheetConfig { columns: 29, rows: 8 })
+                                        AnimationManager::new(SpriteSheetConfig {
+                                            columns: 29,
+                                            rows: 8,
+                                        })
                                     });
                                     // Map anim_state from server to local AnimationState
                                     let state = match ps.anim_state {
@@ -340,7 +493,8 @@ async fn main() {
                                     };
                                     anim.set_state(state);
                                     if ps.direction <= 7 {
-                                        anim.direction = unsafe { std::mem::transmute(ps.direction) };
+                                        anim.direction =
+                                            unsafe { std::mem::transmute(ps.direction) };
                                     }
                                     anim.update(delta_time, 5.0);
                                 }
@@ -348,12 +502,17 @@ async fn main() {
                         }
 
                         // Spawn effects from server for remote spells
-                        let active_ids: std::collections::HashSet<u64> = world.effects.iter().map(|e| e.effect_id).collect();
+                        let active_ids: std::collections::HashSet<u64> =
+                            world.effects.iter().map(|e| e.effect_id).collect();
                         spawned_effect_ids.retain(|id| active_ids.contains(id)); // Cleanup old IDs
 
                         for ef in &world.effects {
-                            if Some(ef.caster_id) == client.my_id { continue; }
-                            if spawned_effect_ids.contains(&ef.effect_id) { continue; }
+                            if Some(ef.caster_id) == client.my_id {
+                                continue;
+                            }
+                            if spawned_effect_ids.contains(&ef.effect_id) {
+                                continue;
+                            }
 
                             spawned_effect_ids.insert(ef.effect_id);
                             let target = vec3(ef.x, 0.0, ef.z);
@@ -365,13 +524,19 @@ async fn main() {
                                 _ => continue,
                             };
                             match spell {
-                                SpellId::Q => effect_manager.spawn_arrow_rain(target, assets.spell_q.clone()),
-                                _ => effect_manager.spawn_single_hit(target, match spell {
-                                    SpellId::W => assets.spell_w.clone(),
-                                    SpellId::E => assets.spell_e.clone(),
-                                    SpellId::R => assets.spell_r.clone(),
-                                    _ => assets.spell_w.clone(),
-                                }, spell),
+                                SpellId::Q => {
+                                    effect_manager.spawn_arrow_rain(target, assets.spell_q.clone())
+                                }
+                                _ => effect_manager.spawn_single_hit(
+                                    target,
+                                    match spell {
+                                        SpellId::W => assets.spell_w.clone(),
+                                        SpellId::E => assets.spell_e.clone(),
+                                        SpellId::R => assets.spell_r.clone(),
+                                        _ => assets.spell_w.clone(),
+                                    },
+                                    spell,
+                                ),
                             }
                         }
                     }
@@ -391,10 +556,15 @@ async fn main() {
                 if is_key_pressed(KeyCode::F2) {
                     game_state = GameState::HitboxCalibration;
                 }
+                if is_key_pressed(KeyCode::F3) {
+                    game_state = GameState::ClusterEditor;
+                }
 
                 // Send inputs to server
                 if let Some(ref client) = net_client {
-                    if is_mouse_button_pressed(MouseButton::Right) && hero.targeting_state == TargetingState::None {
+                    if is_mouse_button_pressed(MouseButton::Right)
+                        && hero.targeting_state == TargetingState::None
+                    {
                         if let Some(pos) = game_camera.get_mouse_ray_intersection() {
                             client.send(&ClientMessage::MoveTo { x: pos.x, z: pos.z });
                         }
@@ -426,17 +596,23 @@ async fn main() {
                         if to_target.length() > 0.1 {
                             let desired = hero.pos + to_target.normalize() * speed * delta_time;
                             let new_pos = world::pathfinding::slide_move(
-                                hero.pos, desired, PLAYER_RADIUS,
-                                world_env.grid_size, world_env.width, world_env.height,
+                                hero.pos,
+                                desired,
+                                PLAYER_RADIUS,
+                                world_env.grid_size,
+                                world_env.width,
+                                world_env.height,
                                 &world_env.walkability_grid,
                             );
                             if (new_pos - hero.pos).length() > 0.001 {
                                 hero.pos = new_pos;
-                                
+
                                 // ── World Boundary Clamping ──
                                 let margin = PLAYER_RADIUS + 0.1;
-                                let hw = (world_env.width as f32 * world_env.grid_size) / 2.0 - margin;
-                                let hh = (world_env.height as f32 * world_env.grid_size) / 2.0 - margin;
+                                let hw =
+                                    (world_env.width as f32 * world_env.grid_size) / 2.0 - margin;
+                                let hh =
+                                    (world_env.height as f32 * world_env.grid_size) / 2.0 - margin;
                                 hero.pos.x = hero.pos.x.clamp(-hw, hw);
                                 hero.pos.z = hero.pos.z.clamp(-hh, hh);
 
@@ -489,7 +665,8 @@ async fn main() {
                     }
                 }
 
-                hero.anim.update(delta_time, hero.stats.get_movement_speed());
+                hero.anim
+                    .update(delta_time, hero.stats.get_movement_speed());
                 effect_manager.update(delta_time);
                 indicator_manager.update(delta_time);
 
@@ -499,7 +676,9 @@ async fn main() {
                 world_env.draw();
 
                 // ── F1: Pathfinding Debug Overlay ──────────────────────────
-                if is_key_pressed(KeyCode::F1) { debug_pathfinding = !debug_pathfinding; }
+                if is_key_pressed(KeyCode::F1) {
+                    debug_pathfinding = !debug_pathfinding;
+                }
 
                 if debug_pathfinding {
                     let gs = world_env.grid_size;
@@ -552,14 +731,14 @@ async fn main() {
                     for x in -hw..=hw {
                         draw_line_3d(
                             vec3(x as f32 * gs, 0.02, -hh as f32 * gs),
-                            vec3(x as f32 * gs, 0.02,  hh as f32 * gs),
+                            vec3(x as f32 * gs, 0.02, hh as f32 * gs),
                             Color::new(1.0, 1.0, 1.0, 0.08),
                         );
                     }
                     for z in -hh..=hh {
                         draw_line_3d(
                             vec3(-hw as f32 * gs, 0.02, z as f32 * gs),
-                            vec3( hw as f32 * gs, 0.02, z as f32 * gs),
+                            vec3(hw as f32 * gs, 0.02, z as f32 * gs),
                             Color::new(1.0, 1.0, 1.0, 0.08),
                         );
                     }
@@ -577,8 +756,14 @@ async fn main() {
                 // ─── Back-to-Front Sorting for EVERYTHING ───
                 // This handles Ogres, Hero, Players, and Particles in a single pass to fix all transparency issues
                 enum DrawKind {
-                    Billboard { tex: Texture2D, src: Rect, size: f32 },
-                    Particle { index: usize },
+                    Billboard {
+                        tex: Texture2D,
+                        src: Rect,
+                        size: f32,
+                    },
+                    Particle {
+                        index: usize,
+                    },
                 }
                 struct SortItem {
                     pos: Vec3,
@@ -595,7 +780,11 @@ async fn main() {
                     let src = Rect::new(ogre_col as f32 * fw, 0.0, fw, fh);
                     sort_list.push(SortItem {
                         pos: *d_pos,
-                        kind: DrawKind::Billboard { tex: assets.dummy.clone(), src, size: 4.0 },
+                        kind: DrawKind::Billboard {
+                            tex: assets.dummy.clone(),
+                            src,
+                            size: 4.0,
+                        },
                         dist_sq: (cam_pos - *d_pos).length_squared(),
                     });
                 }
@@ -605,7 +794,11 @@ async fn main() {
                     let src = hero.anim.get_source_rect(tex.width(), tex.height());
                     sort_list.push(SortItem {
                         pos: hero.pos,
-                        kind: DrawKind::Billboard { tex: tex.clone(), src, size: 2.3 },
+                        kind: DrawKind::Billboard {
+                            tex: tex.clone(),
+                            src,
+                            size: 2.3,
+                        },
                         dist_sq: (cam_pos - hero.pos).length_squared(),
                     });
                 }
@@ -614,7 +807,9 @@ async fn main() {
                 if let Some(ref client) = net_client {
                     if let Some(ref world) = client.latest_world {
                         for ps in &world.players {
-                            if Some(ps.id) == client.my_id { continue; }
+                            if Some(ps.id) == client.my_id {
+                                continue;
+                            }
                             let pos = vec3(ps.x, 0.0, ps.z);
                             if let Some(textures) = remote_textures.get(&ps.id) {
                                 if let Some(anim) = remote_anims.get(&ps.id) {
@@ -622,7 +817,11 @@ async fn main() {
                                         let src = anim.get_source_rect(tex.width(), tex.height());
                                         sort_list.push(SortItem {
                                             pos,
-                                            kind: DrawKind::Billboard { tex: tex.clone(), src, size: 2.0 },
+                                            kind: DrawKind::Billboard {
+                                                tex: tex.clone(),
+                                                src,
+                                                size: 2.0,
+                                            },
                                             dist_sq: (cam_pos - pos).length_squared(),
                                         });
                                     }
@@ -680,14 +879,28 @@ async fn main() {
 
                 // Draw ping
                 if let Some(ref client) = net_client {
-                    draw_text(&format!("Ping: {:.0}ms", client.ping_ms), screen_width() - 140.0, 20.0, 18.0, GREEN);
+                    draw_text(
+                        &format!("Ping: {:.0}ms", client.ping_ms),
+                        screen_width() - 140.0,
+                        20.0,
+                        18.0,
+                        GREEN,
+                    );
                 }
 
                 if let TargetingState::UnitTarget(_) = hero.targeting_state {
                     show_mouse(false);
                     let (mx, my) = mouse_position();
-                    draw_texture_ex(&assets.target_mouse, mx - 16.0, my - 16.0, WHITE,
-                        DrawTextureParams { dest_size: Some(vec2(32.0, 32.0)), ..Default::default() });
+                    draw_texture_ex(
+                        &assets.target_mouse,
+                        mx - 16.0,
+                        my - 16.0,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(vec2(32.0, 32.0)),
+                            ..Default::default()
+                        },
+                    );
                 } else {
                     show_mouse(true);
                 }
@@ -703,14 +916,19 @@ fn sync_creator_indices(creator: &mut CharacterCreator) {
     let app = &creator.appearance;
 
     // Skin (required)
-    creator.selected_indices[0] = creator.catalog.skins.iter().position(|o| o.name == app.skin);
+    creator.selected_indices[0] = creator
+        .catalog
+        .skins
+        .iter()
+        .position(|o| o.name == app.skin);
     if creator.selected_indices[0].is_none() {
         creator.selected_indices[0] = Some(0);
     }
 
     // Optional layers
     let find = |opts: &[LayerOption], name: &Option<String>| -> Option<usize> {
-        name.as_ref().and_then(|n| opts.iter().position(|o| o.name == *n))
+        name.as_ref()
+            .and_then(|n| opts.iter().position(|o| o.name == *n))
     };
 
     creator.selected_indices[1] = find(&creator.catalog.shoes, &app.shoes);

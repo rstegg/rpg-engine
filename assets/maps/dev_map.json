@@ -1,0 +1,15 @@
+{
+  "name": "dev_map",
+  "bounds": {
+    "width": 256.0,
+    "height": 256.0
+  },
+  "biome_regions": [],
+  "clusters": [
+    {
+      "name": "cluster_001",
+      "biome": "grassland",
+      "placements": []
+    }
+  ]
+}

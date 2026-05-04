@@ -1,6 +1,7 @@
+use crate::world::cluster::ModelPlacement;
+use gltf::Gltf;
 use macroquad::prelude::*;
 use std::collections::HashMap;
-use gltf::Gltf;
 
 /// One primitive within a GLB — has its own flat material color.
 #[derive(Clone)]
@@ -51,7 +52,10 @@ pub async fn load_glb_template(path: &str) -> Option<GltfTemplate> {
                 .map(|it| it.into_f32().map(|u| vec2(u[0], u[1])).collect())
                 .unwrap_or_else(|| vec![Vec2::ZERO; n]);
 
-            let base = primitive.material().pbr_metallic_roughness().base_color_factor();
+            let base = primitive
+                .material()
+                .pbr_metallic_roughness()
+                .base_color_factor();
             let (mat_r, mat_g, mat_b) = (base[0], base[1], base[2]);
 
             let mut vertices = Vec::with_capacity(n);
@@ -80,35 +84,57 @@ pub async fn load_glb_template(path: &str) -> Option<GltfTemplate> {
         }
     }
 
-    if primitives.is_empty() { return None; }
+    if primitives.is_empty() {
+        return None;
+    }
 
     let centroid_xz = if all_positions.is_empty() {
         Vec2::ZERO
     } else {
-        let sum = all_positions.iter().fold(Vec2::ZERO, |acc, p| acc + vec2(p.x, p.z));
+        let sum = all_positions
+            .iter()
+            .fold(Vec2::ZERO, |acc, p| acc + vec2(p.x, p.z));
         sum / all_positions.len() as f32
     };
 
-    let footprint_radius = all_positions.iter().map(|p| {
-        let dx = p.x - centroid_xz.x;
-        let dz = p.z - centroid_xz.y;
-        (dx * dx + dz * dz).sqrt()
-    }).fold(0.0_f32, f32::max);
+    let footprint_radius = all_positions
+        .iter()
+        .map(|p| {
+            let dx = p.x - centroid_xz.x;
+            let dz = p.z - centroid_xz.y;
+            (dx * dx + dz * dz).sqrt()
+        })
+        .fold(0.0_f32, f32::max);
 
-    Some(GltfTemplate { primitives, footprint_radius })
+    Some(GltfTemplate {
+        primitives,
+        footprint_radius,
+    })
 }
 
 pub fn instantiate(template: &GltfTemplate, pos: Vec3, rotation: f32, scale: f32) -> Vec<Mesh> {
     let rot = Quat::from_rotation_y(rotation);
-    template.primitives.iter().map(|prim| {
-        let vertices: Vec<Vertex> = prim.vertices.iter().map(|v| {
-            let mut nv = *v;
-            nv.position = rot * (v.position * scale) + pos;
-            nv
-        }).collect();
-        let indices: Vec<u16> = prim.indices.iter().map(|&i| i as u16).collect();
-        Mesh { vertices, indices, texture: None }
-    }).collect()
+    template
+        .primitives
+        .iter()
+        .map(|prim| {
+            let vertices: Vec<Vertex> = prim
+                .vertices
+                .iter()
+                .map(|v| {
+                    let mut nv = *v;
+                    nv.position = rot * (v.position * scale) + pos;
+                    nv
+                })
+                .collect();
+            let indices: Vec<u16> = prim.indices.iter().map(|&i| i as u16).collect();
+            Mesh {
+                vertices,
+                indices,
+                texture: None,
+            }
+        })
+        .collect()
 }
 
 fn block_radius(
@@ -127,7 +153,9 @@ fn block_radius(
         for dz in -cell_radius..=cell_radius {
             let gx = cx + dx;
             let gz = cz + dz;
-            if gx < 0 || gx >= width || gz < 0 || gz >= height { continue; }
+            if gx < 0 || gx >= width || gz < 0 || gz >= height {
+                continue;
+            }
 
             let cell_wx = (gx - width / 2) as f32 * grid_size;
             let cell_wz = (gz - height / 2) as f32 * grid_size;
@@ -151,26 +179,30 @@ pub struct WorldEnvironment {
 }
 
 impl WorldEnvironment {
-    pub async fn new(tile_width: i32, tile_height: i32, radius_overrides: HashMap<String, f32>) -> Self {
+    pub async fn new(
+        tile_width: i32,
+        tile_height: i32,
+        radius_overrides: HashMap<String, f32>,
+    ) -> Self {
         let base = "assets/world_models/";
         let to_load: Vec<(&str, &str)> = vec![
-            ("grass",    "ground_grass.glb"),
-            ("path",     "ground_pathStraight.glb"),
-            ("tree_a",   "tree_default.glb"),
-            ("tree_b",   "tree_simple.glb"),
-            ("tree_c",   "tree_oak.glb"),
-            ("rock_a",   "rock_largeA.glb"),
-            ("rock_b",   "rock_tallA.glb"),
-            ("rock_c",   "stone_largeA.glb"),
+            ("grass", "ground_grass.glb"),
+            ("path", "ground_pathStraight.glb"),
+            ("tree_a", "tree_default.glb"),
+            ("tree_b", "tree_simple.glb"),
+            ("tree_c", "tree_oak.glb"),
+            ("rock_a", "rock_largeA.glb"),
+            ("rock_b", "rock_tallA.glb"),
+            ("rock_c", "stone_largeA.glb"),
             ("flower_a", "flower_purpleA.glb"),
             ("flower_b", "flower_redA.glb"),
             ("flower_c", "flower_yellowA.glb"),
             ("mushroom", "mushroom_red.glb"),
-            ("shroom2",  "mushroom_tan.glb"),
-            ("plant",    "plant_bush.glb"),
-            ("tent",     "tent_detailedOpen.glb"),
+            ("shroom2", "mushroom_tan.glb"),
+            ("plant", "plant_bush.glb"),
+            ("tent", "tent_detailedOpen.glb"),
             ("campfire", "campfire_bricks.glb"),
-            ("stump",    "stump_round.glb"),
+            ("stump", "stump_round.glb"),
         ];
 
         let mut templates = HashMap::new();
@@ -183,15 +215,15 @@ impl WorldEnvironment {
         let mut meshes: Vec<Mesh> = Vec::new();
         let tile_size = 2.0_f32;
         let grid_size = 0.5_f32; // Higher resolution for hitboxes
-        
+
         // World size in meters
         let world_width_m = tile_width as f32 * tile_size;
         let world_height_m = tile_height as f32 * tile_size;
-        
+
         // Grid size in cells
         let grid_width = (world_width_m / grid_size) as i32;
         let grid_height = (world_height_m / grid_size) as i32;
-        
+
         let mut walkability_grid = vec![vec![true; grid_height as usize]; grid_width as usize];
 
         use ::rand::Rng;
@@ -200,11 +232,15 @@ impl WorldEnvironment {
         // ── 1. Ground Tiles ──────────────────────────────────────────────────
         for x in 0..tile_width {
             for z in 0..tile_height {
-                let wx = (x - tile_width/2) as f32 * tile_size;
-                let wz = (z - tile_height/2) as f32 * tile_size;
-                let is_path = (x - tile_width/2).abs() < 1;
+                let wx = (x - tile_width / 2) as f32 * tile_size;
+                let wz = (z - tile_height / 2) as f32 * tile_size;
+                let is_path = (x - tile_width / 2).abs() < 1;
                 let key = if is_path { "path" } else { "grass" };
-                let rot = if is_path { 0.0 } else { rng.gen_range(0..4) as f32 * 1.5708 };
+                let rot = if is_path {
+                    0.0
+                } else {
+                    rng.gen_range(0..4) as f32 * 1.5708
+                };
                 if let Some(t) = templates.get(key) {
                     meshes.extend(instantiate(t, vec3(wx, 0.0, wz), rot, tile_size));
                 }
@@ -212,26 +248,35 @@ impl WorldEnvironment {
         }
 
         // ── 2. Procedural decoration ──────────────────────────────────────────
-        let trees  = ["tree_a", "tree_b", "tree_c"];
-        let rocks  = ["rock_a", "rock_c"]; // rock_b is now a mountain-sized landmark
-        let smalls = ["flower_a", "flower_b", "flower_c", "mushroom", "shroom2", "plant"];
+        let trees = ["tree_a", "tree_b", "tree_c"];
+        let rocks = ["rock_a", "rock_c"]; // rock_b is now a mountain-sized landmark
+        let smalls = [
+            "flower_a", "flower_b", "flower_c", "mushroom", "shroom2", "plant",
+        ];
 
         for _ in 0..180 {
             let x_tile = rng.gen_range(0..tile_width);
             let z_tile = rng.gen_range(0..tile_height);
-            if (x_tile - tile_width/2).abs() < 2 { continue; }
-
-            let wx = (x_tile - tile_width/2) as f32 * tile_size + rng.gen_range(-0.7_f32..0.7);
-            let wz = (z_tile - tile_height/2) as f32 * tile_size + rng.gen_range(-0.7_f32..0.7);
-            
-            // Check grid walkability at the proposed spot
-            let gx = ((wx / grid_size).round() + (grid_width / 2) as f32) as i32;
-            let gz = ((wz / grid_size).round() + (grid_height / 2) as f32) as i32;
-            if gx < 0 || gx >= grid_width || gz < 0 || gz >= grid_height || !walkability_grid[gx as usize][gz as usize] {
+            if (x_tile - tile_width / 2).abs() < 2 {
                 continue;
             }
 
-            let rot  = rng.gen_range(0.0_f32..6.28);
+            let wx = (x_tile - tile_width / 2) as f32 * tile_size + rng.gen_range(-0.7_f32..0.7);
+            let wz = (z_tile - tile_height / 2) as f32 * tile_size + rng.gen_range(-0.7_f32..0.7);
+
+            // Check grid walkability at the proposed spot
+            let gx = ((wx / grid_size).round() + (grid_width / 2) as f32) as i32;
+            let gz = ((wz / grid_size).round() + (grid_height / 2) as f32) as i32;
+            if gx < 0
+                || gx >= grid_width
+                || gz < 0
+                || gz >= grid_height
+                || !walkability_grid[gx as usize][gz as usize]
+            {
+                continue;
+            }
+
+            let rot = rng.gen_range(0.0_f32..6.28);
             let roll = rng.gen_range(0.0_f32..1.0);
 
             let (key, blocks): (&str, bool) = if roll < 0.40 {
@@ -244,13 +289,13 @@ impl WorldEnvironment {
 
             if let Some(t) = templates.get(key) {
                 let base_scale = match key {
-                    k if k.starts_with("tree")  => 2.0 + rng.gen_range(-0.3_f32..0.5),
-                    k if k.starts_with("rock")  => 1.5 + rng.gen_range(-0.2_f32..0.3),
+                    k if k.starts_with("tree") => 2.0 + rng.gen_range(-0.3_f32..0.5),
+                    k if k.starts_with("rock") => 1.5 + rng.gen_range(-0.2_f32..0.3),
                     k if k.starts_with("stone") => 1.5 + rng.gen_range(-0.2_f32..0.3),
-                    _                            => 0.8 + rng.gen_range(-0.1_f32..0.2),
+                    _ => 0.8 + rng.gen_range(-0.1_f32..0.2),
                 };
                 let pos = vec3(wx, 0.0, wz);
-                
+
                 // If it's a small object (flower/plant), spawn a cluster
                 if !blocks && key.starts_with("flower") {
                     let cluster_count = rng.gen_range(3..6);
@@ -267,7 +312,14 @@ impl WorldEnvironment {
                 if blocks {
                     let multiplier = radius_overrides.get(key).cloned().unwrap_or(1.0);
                     let world_radius = t.footprint_radius * base_scale * multiplier;
-                    block_radius(&mut walkability_grid, pos, world_radius, grid_size, grid_width, grid_height);
+                    block_radius(
+                        &mut walkability_grid,
+                        pos,
+                        world_radius,
+                        grid_size,
+                        grid_width,
+                        grid_height,
+                    );
                 }
             }
         }
@@ -280,10 +332,17 @@ impl WorldEnvironment {
             let scale = 3.0; // Scaled down from mountain size
             let rot = rng.gen_range(0.0..6.28);
             meshes.extend(instantiate(t, pos, rot, scale));
-            
+
             let mult = radius_overrides.get("rock_b").cloned().unwrap_or(1.0);
             let r = t.footprint_radius * scale * mult;
-            block_radius(&mut walkability_grid, pos, r, grid_size, grid_width, grid_height);
+            block_radius(
+                &mut walkability_grid,
+                pos,
+                r,
+                grid_size,
+                grid_width,
+                grid_height,
+            );
         }
 
         // ── 4. Camp ───────────────────────────────────────────────────────────
@@ -293,13 +352,27 @@ impl WorldEnvironment {
             meshes.extend(instantiate(t, tent_pos, -0.7, 2.5));
             let mult = radius_overrides.get("tent").cloned().unwrap_or(1.0);
             let r = t.footprint_radius * 2.5 * mult;
-            block_radius(&mut walkability_grid, tent_pos, r, grid_size, grid_width, grid_height);
+            block_radius(
+                &mut walkability_grid,
+                tent_pos,
+                r,
+                grid_size,
+                grid_width,
+                grid_height,
+            );
         }
         if let Some(t) = templates.get("campfire") {
             meshes.extend(instantiate(t, fire_pos, 0.0, 2.0));
             let mult = radius_overrides.get("campfire").cloned().unwrap_or(1.0);
             let r = t.footprint_radius * 2.0 * mult;
-            block_radius(&mut walkability_grid, fire_pos, r, grid_size, grid_width, grid_height);
+            block_radius(
+                &mut walkability_grid,
+                fire_pos,
+                r,
+                grid_size,
+                grid_width,
+                grid_height,
+            );
         }
 
         // ── 4. Generate Pathfinding Padding ─────────────────────────────────
@@ -321,7 +394,15 @@ impl WorldEnvironment {
             }
         }
 
-        Self { meshes, templates, grid_size, width: grid_width, height: grid_height, walkability_grid, pathfinding_grid }
+        Self {
+            meshes,
+            templates,
+            grid_size,
+            width: grid_width,
+            height: grid_height,
+            walkability_grid,
+            pathfinding_grid,
+        }
     }
 
     pub fn draw(&self) {
@@ -330,10 +411,64 @@ impl WorldEnvironment {
         }
     }
 
+    pub fn add_placement(
+        &mut self,
+        placement: &ModelPlacement,
+        radius_overrides: &HashMap<String, f32>,
+    ) {
+        if let Some(template) = self.templates.get(&placement.model) {
+            let pos = placement.pos_vec3();
+            self.meshes.extend(instantiate(
+                template,
+                pos,
+                placement.rotation,
+                placement.scale,
+            ));
+
+            if placement.blocks_movement {
+                let multiplier = radius_overrides
+                    .get(&placement.model)
+                    .cloned()
+                    .unwrap_or(1.0);
+                let radius = template.footprint_radius * placement.scale * multiplier;
+                block_radius(
+                    &mut self.walkability_grid,
+                    pos,
+                    radius,
+                    self.grid_size,
+                    self.width,
+                    self.height,
+                );
+                self.rebuild_pathfinding_padding();
+            }
+        }
+    }
+
+    fn rebuild_pathfinding_padding(&mut self) {
+        self.pathfinding_grid = self.walkability_grid.clone();
+        for x in 0..self.width {
+            for z in 0..self.height {
+                if !self.walkability_grid[x as usize][z as usize] {
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            let nx = x + dx;
+                            let nz = z + dz;
+                            if nx >= 0 && nx < self.width && nz >= 0 && nz < self.height {
+                                self.pathfinding_grid[nx as usize][nz as usize] = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn is_walkable(&self, world_pos: Vec3) -> bool {
         let x = ((world_pos.x / self.grid_size).round() + (self.width / 2) as f32) as i32;
         let z = ((world_pos.z / self.grid_size).round() + (self.height / 2) as f32) as i32;
-        if x < 0 || x >= self.width || z < 0 || z >= self.height { return false; }
+        if x < 0 || x >= self.width || z < 0 || z >= self.height {
+            return false;
+        }
         self.walkability_grid[x as usize][z as usize]
     }
 }

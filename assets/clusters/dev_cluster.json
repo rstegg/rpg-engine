@@ -1,0 +1,30 @@
+{
+  "name": "dev_cluster",
+  "biome": "grassland",
+  "placements": [
+    {
+      "model": "bed",
+      "file": "bed.glb",
+      "position": [
+        -1.8782462,
+        0.0,
+        -1.722333
+      ],
+      "rotation": 0.0,
+      "scale": 1.0,
+      "blocks_movement": true
+    },
+    {
+      "model": "bed",
+      "file": "bed.glb",
+      "position": [
+        -3.3357997,
+        0.0,
+        -1.688962
+      ],
+      "rotation": 0.0,
+      "scale": 1.0,
+      "blocks_movement": true
+    }
+  ]
+}
