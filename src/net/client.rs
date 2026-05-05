@@ -1,6 +1,6 @@
+use crate::net::protocol::*;
 use std::net::UdpSocket;
 use std::time::Instant;
-use crate::net::protocol::*;
 
 /// Client-side networking wrapper.
 pub struct NetClient {
@@ -23,10 +23,19 @@ pub struct WorldSnapshot {
 
 impl NetClient {
     /// Connect to a server. Non-blocking UDP socket.
-    pub fn connect(server_addr: &str, name: &str, appearance: CharacterAppearanceNet) -> Result<Self, String> {
-        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("Failed to bind socket: {}", e))?;
-        socket.connect(server_addr).map_err(|e| format!("Failed to connect: {}", e))?;
-        socket.set_nonblocking(true).map_err(|e| format!("Failed to set nonblocking: {}", e))?;
+    pub fn connect(
+        server_addr: &str,
+        name: &str,
+        appearance: CharacterAppearanceNet,
+    ) -> Result<Self, String> {
+        let socket =
+            UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("Failed to bind socket: {}", e))?;
+        socket
+            .connect(server_addr)
+            .map_err(|e| format!("Failed to connect: {}", e))?;
+        socket
+            .set_nonblocking(true)
+            .map_err(|e| format!("Failed to set nonblocking: {}", e))?;
 
         let mut client = Self {
             socket,
@@ -96,7 +105,11 @@ impl NetClient {
                 eprintln!("[NET] Join rejected: {}", reason);
                 self.connected = false;
             }
-            ServerMessage::PlayerJoined { id, name, appearance } => {
+            ServerMessage::PlayerJoined {
+                id,
+                name,
+                appearance,
+            } => {
                 println!("[NET] Player joined: {} ({})", name, id);
                 self.remote_appearances.insert(id, appearance);
             }
@@ -104,14 +117,22 @@ impl NetClient {
                 println!("[NET] Player left: {}", id);
                 self.remote_appearances.remove(&id);
             }
-            ServerMessage::WorldState { tick, server_time: _, players, effects } => {
+            ServerMessage::WorldState {
+                tick,
+                server_time: _,
+                players,
+                effects,
+            } => {
                 self.latest_world = Some(WorldSnapshot {
                     tick,
                     players,
                     effects,
                 });
             }
-            ServerMessage::Pong { client_time, server_time: _ } => {
+            ServerMessage::Pong {
+                client_time,
+                server_time: _,
+            } => {
                 if let Some(sent_time) = self.pending_ping {
                     if (sent_time - client_time).abs() < 0.001 {
                         let now = std::time::SystemTime::now()

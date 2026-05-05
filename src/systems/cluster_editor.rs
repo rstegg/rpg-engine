@@ -7,8 +7,19 @@ use crate::world::environment::{GltfTemplate, instantiate};
 
 const MODEL_DIR: &str = "assets/world_models";
 const SAVE_PATH: &str = "assets/maps/dev_map.json";
-const PANEL_WIDTH: f32 = 330.0;
-const ROW_HEIGHT: f32 = 22.0;
+const TOOLBAR_WIDTH: f32 = 112.0;
+const TOOL_BUTTON_X: f32 = 10.0;
+const TOOL_BUTTON_W: f32 = 92.0;
+const TOOL_BUTTON_H: f32 = 32.0;
+const SIDEBAR_WIDTH: f32 = 300.0;
+const STATUS_HEIGHT: f32 = 32.0;
+const ROW_HEIGHT: f32 = 24.0;
+const SCALE_STEP: f32 = 0.25;
+const MIN_OBJECT_SCALE: f32 = 0.25;
+const MAX_OBJECT_SCALE: f32 = 10.0;
+const ROTATION_STEP: f32 = std::f32::consts::FRAC_PI_2;
+const GRID_STEP: f32 = 2.0;
+const SETTINGS_TOGGLE_Y: f32 = 210.0;
 
 #[derive(Clone)]
 pub struct ModelAsset {
@@ -18,7 +29,15 @@ pub struct ModelAsset {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+enum EditorTab {
+    Assets,
+    Clusters,
+    Settings,
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum EditorTool {
+    Select,
     Objects,
     Biomes,
 }
@@ -27,6 +46,8 @@ pub enum EditorAction {
     None,
     Exit,
     PlayTest,
+    LoadDefault,
+    ClearAll,
 }
 
 pub struct ClusterEditor {
@@ -43,10 +64,23 @@ pub struct ClusterEditor {
     list_scroll: usize,
     camera_target: Vec3,
     camera_height: f32,
+    grid_snap_enabled: bool,
     camera: Camera3D,
     map: MapDocument,
     status: String,
     play_button_armed: bool,
+    // Selection tool state
+    selected_placements: Vec<(usize, usize)>,
+    hovered_placement: Option<(usize, usize)>,
+    is_dragging: bool,
+    drag_start_pos: Vec3,
+    drag_original_positions: Vec<Vec3>,
+    // UI state
+    left_collapsed: bool,
+    right_collapsed: bool,
+    active_tab: EditorTab,
+    load_default_armed: bool,
+    clear_all_armed: bool,
 }
 
 impl ClusterEditor {
@@ -67,12 +101,21 @@ impl ClusterEditor {
             list_scroll: 0,
             camera_target,
             camera_height,
+            grid_snap_enabled: true,
             camera: Camera3D::default(),
             map: MapDocument::new("dev_map"),
-            status: String::from(
-                "F3 exits. Tab switches Objects/Biomes. WASD pans. Ctrl+S saves map.",
-            ),
+            status: String::from("F3 exits. Tab switches Tools. WASD pans. Ctrl+S saves map."),
             play_button_armed: false,
+            selected_placements: Vec::new(),
+            hovered_placement: None,
+            is_dragging: false,
+            drag_start_pos: Vec3::ZERO,
+            drag_original_positions: Vec::new(),
+            left_collapsed: false,
+            right_collapsed: false,
+            active_tab: EditorTab::Assets,
+            load_default_armed: false,
+            clear_all_armed: false,
         };
         editor.rebuild_camera();
         editor
@@ -128,18 +171,30 @@ impl ClusterEditor {
             return EditorAction::PlayTest;
         }
 
-        self.update_panel();
+        self.update_ui_state();
         if self.play_button_armed {
             self.play_button_armed = false;
             return EditorAction::PlayTest;
         }
+        if self.load_default_armed {
+            self.load_default_armed = false;
+            return EditorAction::LoadDefault;
+        }
+        if self.clear_all_armed {
+            self.clear_all_armed = false;
+            return EditorAction::ClearAll;
+        }
+
         self.update_camera();
 
         if is_key_pressed(KeyCode::Tab) {
             self.tool = match self.tool {
                 EditorTool::Objects => EditorTool::Biomes,
-                EditorTool::Biomes => EditorTool::Objects,
+                EditorTool::Biomes => EditorTool::Select,
+                EditorTool::Select => EditorTool::Objects,
             };
+            self.selected_placements.clear();
+            self.hovered_placement = None;
         }
         if is_key_pressed(KeyCode::B) {
             self.selected_biome = (self.selected_biome + 1) % BIOMES.len();
@@ -148,17 +203,40 @@ impl ClusterEditor {
         if is_key_pressed(KeyCode::N) {
             self.new_cluster();
         }
+        if is_key_pressed(KeyCode::G) && !ctrl_down() {
+            self.grid_snap_enabled = !self.grid_snap_enabled;
+            self.status = if self.grid_snap_enabled {
+                format!("Grid snap enabled ({GRID_STEP:.2}m).")
+            } else {
+                String::from("Grid snap disabled.")
+            };
+        }
         if is_key_pressed(KeyCode::S) && ctrl_down() {
             self.save();
         }
-        if is_key_pressed(KeyCode::Backspace) {
+        if is_key_pressed(KeyCode::Backspace) && !self.search_focused {
             self.undo();
+        }
+        if is_key_pressed(KeyCode::Delete) && !self.search_focused {
+            if self.tool == EditorTool::Select && !self.selected_placements.is_empty() {
+                self.delete_selected();
+            } else {
+                self.undo();
+            }
+        }
+        if ctrl_down() && is_key_pressed(KeyCode::Delete) {
+            self.clear_map();
+            return EditorAction::ClearAll;
+        }
+        if ctrl_down() && is_key_pressed(KeyCode::G) && !self.selected_placements.is_empty() {
+            self.group_selection();
         }
 
         if !self.pointer_over_panel() {
             match self.tool {
                 EditorTool::Objects => self.update_objects(),
                 EditorTool::Biomes => self.update_biomes(),
+                EditorTool::Select => self.update_selection(),
             }
         }
 
@@ -166,7 +244,11 @@ impl ClusterEditor {
     }
 
     pub fn draw_3d(&self, templates: &HashMap<String, GltfTemplate>) {
+        if self.grid_snap_enabled {
+            draw_grid(40, GRID_STEP, Color::new(0.25, 0.25, 0.25, 0.35), DARKGRAY);
+        }
         self.draw_map_bounds();
+        self.draw_spawn_indicator();
         self.draw_biome_regions();
 
         for cluster in &self.map.clusters {
@@ -188,135 +270,309 @@ impl ClusterEditor {
             match self.tool {
                 EditorTool::Objects => self.draw_object_preview(templates, cursor),
                 EditorTool::Biomes => self.draw_brush(cursor),
+                EditorTool::Select => self.draw_selection_highlights(templates),
             }
+        } else if self.tool == EditorTool::Select {
+            self.draw_selection_highlights(templates);
         }
     }
 
     pub fn draw_ui(&self, template_loaded: bool) {
-        let tool = match self.tool {
-            EditorTool::Objects => "Objects",
-            EditorTool::Biomes => "Biomes",
+        let sw = screen_width();
+        let sh = screen_height();
+
+        // 1. Left Toolbar
+        let left_w = if self.left_collapsed {
+            12.0
+        } else {
+            TOOLBAR_WIDTH
         };
-        let cluster = self.map.active_cluster();
-        let cluster_name = cluster.map(|c| c.name.as_str()).unwrap_or("none");
-        let placement_count = self
-            .map
-            .clusters
-            .iter()
-            .map(|cluster| cluster.placements.len())
-            .sum::<usize>();
-
-        draw_rectangle(
-            0.0,
-            0.0,
-            PANEL_WIDTH,
-            screen_height(),
-            Color::new(0.0, 0.0, 0.0, 0.78),
-        );
-        draw_text("MAP EDITOR", 16.0, 32.0, 24.0, YELLOW);
-        draw_button_rect(
-            16.0,
-            48.0,
-            88.0,
-            30.0,
-            "Objects",
-            self.tool == EditorTool::Objects,
-        );
-        draw_button_rect(
-            112.0,
-            48.0,
-            84.0,
-            30.0,
-            "Biomes",
-            self.tool == EditorTool::Biomes,
-        );
-        draw_button_rect(204.0, 48.0, 52.0, 30.0, "Save", false);
-        draw_button_rect(264.0, 48.0, 52.0, 30.0, "Play", false);
-
+        draw_rectangle(0.0, 0.0, left_w, sh, Color::new(0.12, 0.12, 0.12, 1.0));
+        draw_line(left_w, 0.0, left_w, sh, 1.0, GRAY);
+        if !self.left_collapsed {
+            self.draw_tool_button(
+                TOOL_BUTTON_X,
+                40.0,
+                "Select",
+                self.tool == EditorTool::Select,
+            );
+            self.draw_tool_button(
+                TOOL_BUTTON_X,
+                80.0,
+                "Object",
+                self.tool == EditorTool::Objects,
+            );
+            self.draw_tool_button(
+                TOOL_BUTTON_X,
+                120.0,
+                "Biome",
+                self.tool == EditorTool::Biomes,
+            );
+            self.draw_tool_button(TOOL_BUTTON_X, sh - 120.0, "Save", false);
+            self.draw_tool_button(TOOL_BUTTON_X, sh - 160.0, "Play", false);
+            self.draw_tool_button(TOOL_BUTTON_X, sh - 200.0, "Clear", false);
+            self.draw_tool_button(TOOL_BUTTON_X, sh - 240.0, "Default", false);
+        }
         draw_text(
-            &format!(
-                "Tool: {}  Biome: {}  Cluster: {}",
-                tool, BIOMES[self.selected_biome], cluster_name
-            ),
-            16.0,
-            104.0,
-            18.0,
+            if self.left_collapsed { ">" } else { "<" },
+            2.0,
+            sh - 20.0,
+            20.0,
             WHITE,
         );
 
+        // 2. Right Sidebar
+        let right_w = if self.right_collapsed {
+            12.0
+        } else {
+            SIDEBAR_WIDTH
+        };
+        draw_rectangle(
+            sw - right_w,
+            0.0,
+            right_w,
+            sh,
+            Color::new(0.12, 0.12, 0.12, 1.0),
+        );
+        draw_line(sw - right_w, 0.0, sw - right_w, sh, 1.0, GRAY);
+        if !self.right_collapsed {
+            let rx = sw - SIDEBAR_WIDTH;
+            self.draw_tab(
+                rx,
+                0.0,
+                100.0,
+                "Assets",
+                self.active_tab == EditorTab::Assets,
+            );
+            self.draw_tab(
+                rx + 100.0,
+                0.0,
+                100.0,
+                "Clusters",
+                self.active_tab == EditorTab::Clusters,
+            );
+            self.draw_tab(
+                rx + 200.0,
+                0.0,
+                100.0,
+                "Settings",
+                self.active_tab == EditorTab::Settings,
+            );
+            match self.active_tab {
+                EditorTab::Assets => self.draw_assets_tab(rx, template_loaded),
+                EditorTab::Clusters => self.draw_clusters_tab(rx),
+                EditorTab::Settings => self.draw_settings_tab(rx),
+            }
+        }
+        draw_text(
+            if self.right_collapsed { "<" } else { ">" },
+            sw - 10.0,
+            sh - 20.0,
+            20.0,
+            WHITE,
+        );
+
+        // 3. Status Bar
+        draw_rectangle(
+            left_w,
+            sh - STATUS_HEIGHT,
+            sw - left_w - right_w,
+            STATUS_HEIGHT,
+            Color::new(0.08, 0.08, 0.08, 1.0),
+        );
+        draw_line(
+            left_w,
+            sh - STATUS_HEIGHT,
+            sw - right_w,
+            sh - STATUS_HEIGHT,
+            1.0,
+            GRAY,
+        );
+        draw_text(&self.status, left_w + 10.0, sh - 12.0, 14.0, GREEN);
+        let tool_name = match self.tool {
+            EditorTool::Objects => "Object Paint",
+            EditorTool::Biomes => "Biome Brush",
+            EditorTool::Select => "Selection Tool",
+        };
+        draw_text(
+            &format!("Tool: {}", tool_name),
+            sw - right_w - 180.0,
+            sh - 12.0,
+            14.0,
+            LIGHTGRAY,
+        );
+    }
+
+    fn draw_tool_button(&self, x: f32, y: f32, label: &str, active: bool) {
+        let color = if active {
+            Color::new(0.3, 0.3, 0.4, 1.0)
+        } else {
+            Color::new(0.2, 0.2, 0.2, 1.0)
+        };
+        draw_rectangle(x, y, TOOL_BUTTON_W, TOOL_BUTTON_H, color);
+        draw_rectangle_lines(x, y, TOOL_BUTTON_W, TOOL_BUTTON_H, 1.0, GRAY);
+        draw_text(label, x + 8.0, y + 21.0, 16.0, WHITE);
+    }
+
+    fn draw_tab(&self, x: f32, y: f32, w: f32, label: &str, active: bool) {
+        let color = if active {
+            Color::new(0.2, 0.2, 0.2, 1.0)
+        } else {
+            Color::new(0.1, 0.1, 0.1, 1.0)
+        };
+        draw_rectangle(x, y, w, 40.0, color);
+        draw_line(x, y + 40.0, x + w, y + 40.0, 1.0, GRAY);
+        draw_text(
+            label,
+            x + 10.0,
+            y + 25.0,
+            16.0,
+            if active { WHITE } else { GRAY },
+        );
+    }
+
+    fn draw_assets_tab(&self, rx: f32, template_loaded: bool) {
+        draw_text("Search:", rx + 10.0, 60.0, 14.0, GRAY);
+        let search_color = if self.search_focused {
+            Color::new(0.18, 0.18, 0.18, 1.0)
+        } else {
+            Color::new(0.1, 0.1, 0.1, 1.0)
+        };
+        draw_rectangle(rx + 10.0, 70.0, SIDEBAR_WIDTH - 20.0, 24.0, search_color);
+        draw_rectangle_lines(rx + 10.0, 70.0, SIDEBAR_WIDTH - 20.0, 24.0, 1.0, GRAY);
+        draw_text(&self.search_text, rx + 15.0, 86.0, 14.0, WHITE);
         if let Some(asset) = self.selected_asset() {
             let state = if template_loaded { "loaded" } else { "loading" };
             draw_text(
-                &format!("Model: {} ({})", asset.file, state),
-                16.0,
-                128.0,
-                16.0,
-                LIGHTGRAY,
-            );
-        } else {
-            draw_text(
-                "Model: none found in assets/world_models",
-                16.0,
-                128.0,
-                16.0,
-                RED,
+                &format!("Active: {} ({})", asset.file, state),
+                rx + 10.0,
+                110.0,
+                12.0,
+                YELLOW,
             );
         }
+        let list_y = 125.0;
+        let filtered: Vec<_> = self
+            .catalog
+            .iter()
+            .filter(|a| {
+                a.key
+                    .to_lowercase()
+                    .contains(&self.search_text.to_lowercase())
+                    || a.file
+                        .to_lowercase()
+                        .contains(&self.search_text.to_lowercase())
+            })
+            .collect();
+        let visible_rows = ((screen_height() - list_y - 20.0) / ROW_HEIGHT) as usize;
+        for i in 0..visible_rows {
+            let idx = i + self.list_scroll;
+            if idx >= filtered.len() {
+                break;
+            }
+            let y = list_y + i as f32 * ROW_HEIGHT;
+            let is_selected = self
+                .selected_asset()
+                .map(|a| a.key == filtered[idx].key)
+                .unwrap_or(false);
+            if is_selected {
+                draw_rectangle(
+                    rx + 5.0,
+                    y,
+                    SIDEBAR_WIDTH - 10.0,
+                    ROW_HEIGHT,
+                    Color::new(0.35, 0.18, 0.04, 1.0),
+                );
+            }
+            draw_text(
+                &truncate_label(&filtered[idx].file, 30),
+                rx + 10.0,
+                y + 16.0,
+                14.0,
+                WHITE,
+            );
+        }
+    }
 
+    fn draw_clusters_tab(&self, rx: f32) {
+        draw_text("Clusters:", rx + 10.0, 60.0, 16.0, WHITE);
+        for (i, cluster) in self.map.clusters.iter().enumerate() {
+            let y = 80.0 + i as f32 * ROW_HEIGHT;
+            draw_text(
+                &format!("{}: {} objects", cluster.name, cluster.placements.len()),
+                rx + 10.0,
+                y + 16.0,
+                14.0,
+                LIGHTGRAY,
+            );
+        }
+    }
+
+    fn draw_settings_tab(&self, rx: f32) {
+        draw_text("Properties:", rx + 10.0, 60.0, 16.0, WHITE);
+        draw_text(
+            &format!("Scale: {:.2}", self.scale),
+            rx + 10.0,
+            90.0,
+            14.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Rotation: {:.1}", self.rotation),
+            rx + 10.0,
+            110.0,
+            14.0,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Brush: {:.1}", self.brush_radius),
+            rx + 10.0,
+            130.0,
+            14.0,
+            LIGHTGRAY,
+        );
         draw_text(
             &format!(
-                "Objects: {}  Biome regions: {}  Scale: {:.2}  Brush: {:.1}",
-                placement_count,
-                self.map.biome_regions.len(),
-                self.scale,
-                self.brush_radius
+                "Grid Snap: {} (G)",
+                if self.grid_snap_enabled { "On" } else { "Off" }
             ),
-            16.0,
-            152.0,
-            16.0,
-            LIGHTGRAY,
-        );
-
-        draw_text("Search models:", 16.0, 184.0, 16.0, LIGHTGRAY);
-        let search_color = if self.search_focused {
-            Color::new(0.14, 0.14, 0.12, 1.0)
-        } else {
-            Color::new(0.08, 0.08, 0.08, 1.0)
-        };
-        draw_rectangle(16.0, 196.0, 298.0, 30.0, search_color);
-        draw_rectangle_lines(16.0, 196.0, 298.0, 30.0, 1.0, GRAY);
-        draw_text(&self.search_text, 24.0, 216.0, 16.0, WHITE);
-
-        self.draw_model_list();
-
-        let help_y = screen_height() - 118.0;
-        draw_text(
-            "Objects: [/] model, wheel scale, R/T rotate",
-            16.0,
-            help_y,
-            16.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            "Biomes: wheel brush, B biome, left paint",
-            16.0,
-            help_y + 22.0,
-            16.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            "Camera: WASD pan, Q/E zoom, Shift faster",
-            16.0,
-            help_y + 44.0,
-            16.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            &format!("{}  Save: {}", self.status, SAVE_PATH),
-            16.0,
-            help_y + 72.0,
+            rx + 10.0,
+            150.0,
             14.0,
-            GREEN,
+            LIGHTGRAY,
+        );
+        draw_text(
+            &format!("Grid Step: {:.2}", GRID_STEP),
+            rx + 10.0,
+            170.0,
+            14.0,
+            LIGHTGRAY,
+        );
+        draw_text("Rotate: R/T", rx + 10.0, 190.0, 14.0, LIGHTGRAY);
+        self.draw_toggle_button(
+            rx + 10.0,
+            SETTINGS_TOGGLE_Y,
+            SIDEBAR_WIDTH - 20.0,
+            "Grid Placement",
+            self.grid_snap_enabled,
+        );
+    }
+
+    fn draw_toggle_button(&self, x: f32, y: f32, w: f32, label: &str, enabled: bool) {
+        let bg = if enabled {
+            Color::new(0.16, 0.28, 0.18, 1.0)
+        } else {
+            Color::new(0.15, 0.15, 0.15, 1.0)
+        };
+        draw_rectangle(x, y, w, 28.0, bg);
+        draw_rectangle_lines(x, y, w, 28.0, 1.0, GRAY);
+        draw_text(label, x + 8.0, y + 18.0, 15.0, WHITE);
+        draw_text(
+            if enabled { "ON" } else { "OFF" },
+            x + w - 34.0,
+            y + 18.0,
+            15.0,
+            if enabled { GREEN } else { LIGHTGRAY },
         );
     }
 
@@ -350,26 +606,128 @@ impl ClusterEditor {
 
         self.rebuild_camera();
     }
-
-    fn update_panel(&mut self) {
-        if !self.pointer_over_panel() {
-            self.search_focused = false;
-            return;
-        }
+    fn update_ui_state(&mut self) {
+        let (mx, my) = mouse_position();
+        let sw = screen_width();
+        let sh = screen_height();
 
         if is_mouse_button_pressed(MouseButton::Left) {
-            self.search_focused = rect_contains(16.0, 196.0, 298.0, 30.0, mouse_position());
-
-            if rect_contains(16.0, 48.0, 88.0, 30.0, mouse_position()) {
-                self.tool = EditorTool::Objects;
-            } else if rect_contains(112.0, 48.0, 84.0, 30.0, mouse_position()) {
-                self.tool = EditorTool::Biomes;
-            } else if rect_contains(204.0, 48.0, 52.0, 30.0, mouse_position()) {
-                self.save();
-            } else if rect_contains(264.0, 48.0, 52.0, 30.0, mouse_position()) {
-                self.play_button_armed = true;
+            let left_w = if self.left_collapsed {
+                12.0
             } else {
-                self.click_model_list();
+                TOOLBAR_WIDTH
+            };
+            if mx < left_w && my > sh - 40.0 {
+                self.left_collapsed = !self.left_collapsed;
+                return;
+            }
+            let right_w = if self.right_collapsed {
+                12.0
+            } else {
+                SIDEBAR_WIDTH
+            };
+            if mx > sw - right_w && my > sh - 40.0 {
+                self.right_collapsed = !self.right_collapsed;
+                return;
+            }
+        }
+
+        if !self.pointer_over_panel() {
+            self.search_focused = false;
+        } else {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                if !self.left_collapsed && mx < TOOLBAR_WIDTH {
+                    if rect_contains(TOOL_BUTTON_X, 40.0, TOOL_BUTTON_W, TOOL_BUTTON_H, (mx, my)) {
+                        self.tool = EditorTool::Select;
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        80.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.tool = EditorTool::Objects;
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        120.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.tool = EditorTool::Biomes;
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        sh - 120.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.save();
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        sh - 160.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.play_button_armed = true;
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        sh - 200.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.clear_map();
+                        self.clear_all_armed = true;
+                    } else if rect_contains(
+                        TOOL_BUTTON_X,
+                        sh - 240.0,
+                        TOOL_BUTTON_W,
+                        TOOL_BUTTON_H,
+                        (mx, my),
+                    ) {
+                        self.load_default_armed = true;
+                    }
+                }
+                if !self.right_collapsed && mx > sw - SIDEBAR_WIDTH {
+                    let rx = mx - (sw - SIDEBAR_WIDTH);
+                    if my < 40.0 {
+                        if rx < 100.0 {
+                            self.active_tab = EditorTab::Assets;
+                        } else if rx < 200.0 {
+                            self.active_tab = EditorTab::Clusters;
+                        } else {
+                            self.active_tab = EditorTab::Settings;
+                        }
+                    } else if self.active_tab == EditorTab::Assets {
+                        self.search_focused = rect_contains(
+                            sw - SIDEBAR_WIDTH + 10.0,
+                            70.0,
+                            SIDEBAR_WIDTH - 20.0,
+                            24.0,
+                            (mx, my),
+                        );
+                        if !self.search_focused && my > 125.0 {
+                            self.click_model_list_right();
+                        }
+                    } else if self.active_tab == EditorTab::Settings
+                        && rect_contains(
+                            sw - SIDEBAR_WIDTH + 10.0,
+                            SETTINGS_TOGGLE_Y,
+                            SIDEBAR_WIDTH - 20.0,
+                            28.0,
+                            (mx, my),
+                        )
+                    {
+                        self.grid_snap_enabled = !self.grid_snap_enabled;
+                        self.status = if self.grid_snap_enabled {
+                            format!("Grid snap enabled ({GRID_STEP:.2}m).")
+                        } else {
+                            String::from("Grid snap disabled.")
+                        };
+                    }
+                }
             }
         }
 
@@ -382,15 +740,11 @@ impl ClusterEditor {
             }
             if is_key_pressed(KeyCode::Backspace) {
                 self.search_text.pop();
-                self.list_scroll = 0;
-            }
-            if is_key_pressed(KeyCode::Escape) {
-                self.search_focused = false;
             }
         }
 
         let (_, wheel_y) = mouse_wheel();
-        if wheel_y.abs() > 0.01 && self.pointer_over_model_list() {
+        if wheel_y.abs() > 0.01 && self.pointer_over_panel() && mx > sw - SIDEBAR_WIDTH {
             if wheel_y < 0.0 {
                 self.list_scroll = self.list_scroll.saturating_add(3);
             } else {
@@ -399,82 +753,43 @@ impl ClusterEditor {
         }
     }
 
-    fn pointer_over_panel(&self) -> bool {
-        let (mx, _) = mouse_position();
-        mx <= PANEL_WIDTH
-    }
-
-    fn pointer_over_model_list(&self) -> bool {
-        let (_, my) = mouse_position();
-        my >= 238.0 && my <= screen_height() - 135.0 && self.pointer_over_panel()
-    }
-
-    fn filtered_model_indices(&self) -> Vec<usize> {
-        let query = self.search_text.to_lowercase();
-        self.catalog
-            .iter()
-            .enumerate()
-            .filter(|(_, asset)| query.is_empty() || asset.file.to_lowercase().contains(&query))
-            .map(|(index, _)| index)
-            .collect()
-    }
-
-    fn click_model_list(&mut self) {
-        if !self.pointer_over_model_list() {
-            return;
-        }
-
-        let (_, my) = mouse_position();
-        let row = ((my - 238.0) / ROW_HEIGHT).floor() as usize;
-        let indices = self.filtered_model_indices();
-        let Some(index) = indices.get(self.list_scroll + row).copied() else {
-            return;
-        };
-        self.selected_model = index;
-        self.tool = EditorTool::Objects;
-        self.status = format!("Selected {}.", self.catalog[index].file);
-    }
-
-    fn draw_model_list(&self) {
-        let top = 238.0;
-        let bottom = screen_height() - 135.0;
-        draw_rectangle(
-            16.0,
-            top,
-            298.0,
-            bottom - top,
-            Color::new(0.04, 0.04, 0.04, 1.0),
-        );
-        draw_rectangle_lines(16.0, top, 298.0, bottom - top, 1.0, DARKGRAY);
-
-        let visible_rows = ((bottom - top) / ROW_HEIGHT).max(0.0) as usize;
-        let indices = self.filtered_model_indices();
-        for (row, index) in indices
-            .iter()
-            .skip(self.list_scroll)
-            .take(visible_rows)
-            .enumerate()
-        {
-            let y = top + row as f32 * ROW_HEIGHT;
-            let selected = *index == self.selected_model;
-            if selected {
-                draw_rectangle(
-                    18.0,
-                    y + 1.0,
-                    294.0,
-                    ROW_HEIGHT - 2.0,
-                    Color::new(0.35, 0.18, 0.04, 1.0),
-                );
+    fn click_model_list_right(&mut self) {
+        let (mx, my) = mouse_position();
+        let sw = screen_width();
+        let list_y = 125.0;
+        let rx = mx - (sw - SIDEBAR_WIDTH);
+        if rx > 10.0 && rx < SIDEBAR_WIDTH - 10.0 && my > list_y {
+            let row = ((my - list_y) / ROW_HEIGHT) as usize;
+            let idx = row + self.list_scroll;
+            let filtered: Vec<_> = self
+                .catalog
+                .iter()
+                .filter(|a| {
+                    a.key
+                        .to_lowercase()
+                        .contains(&self.search_text.to_lowercase())
+                        || a.file
+                            .to_lowercase()
+                            .contains(&self.search_text.to_lowercase())
+                })
+                .collect();
+            if idx < filtered.len() {
+                if let Some(orig_idx) = self.catalog.iter().position(|a| a.key == filtered[idx].key)
+                {
+                    self.selected_model = orig_idx;
+                    self.tool = EditorTool::Objects;
+                    self.status = format!("Selected {}.", self.catalog[orig_idx].file);
+                }
             }
-            let label = truncate_label(&self.catalog[*index].file, 34);
-            draw_text(
-                &label,
-                24.0,
-                y + 16.0,
-                14.0,
-                if selected { WHITE } else { LIGHTGRAY },
-            );
         }
+    }
+
+    pub fn import_placements(&mut self, placements: &[ModelPlacement]) {
+        self.map
+            .active_cluster_mut()
+            .placements
+            .extend_from_slice(placements);
+        self.status = format!("Imported {} objects from environment.", placements.len());
     }
 
     fn update_objects(&mut self) {
@@ -484,11 +799,11 @@ impl ClusterEditor {
         if is_key_pressed(KeyCode::LeftBracket) {
             self.prev_model();
         }
-        if is_key_down(KeyCode::R) {
-            self.rotation += get_frame_time() * 1.8;
+        if is_key_pressed(KeyCode::R) {
+            self.rotation += ROTATION_STEP;
         }
-        if is_key_down(KeyCode::T) {
-            self.rotation -= get_frame_time() * 1.8;
+        if is_key_pressed(KeyCode::T) {
+            self.rotation -= ROTATION_STEP;
         }
         if is_key_pressed(KeyCode::Space) {
             self.blocks_movement = !self.blocks_movement;
@@ -496,13 +811,25 @@ impl ClusterEditor {
 
         let (_, wheel_y) = mouse_wheel();
         if wheel_y.abs() > 0.01 {
-            self.scale = (self.scale + wheel_y * 0.08).clamp(0.2, 8.0);
+            let current_steps = (self.scale / SCALE_STEP).round() as i32;
+            let next_steps = if wheel_y > 0.0 {
+                current_steps + 1
+            } else {
+                current_steps - 1
+            };
+            let min_steps = (MIN_OBJECT_SCALE / SCALE_STEP) as i32;
+            let max_steps = (MAX_OBJECT_SCALE / SCALE_STEP) as i32;
+            self.scale = (next_steps.clamp(min_steps, max_steps) as f32) * SCALE_STEP;
+        }
+        if is_key_pressed(KeyCode::S) && ctrl_down() {
+            self.save();
         }
 
         if is_mouse_button_pressed(MouseButton::Left) {
-            if let (Some(asset), Some(pos)) =
+            if let (Some(asset), Some(cursor)) =
                 (self.selected_asset().cloned(), self.mouse_ground_pos())
             {
+                let pos = self.placement_pos(cursor);
                 self.map
                     .active_cluster_mut()
                     .placements
@@ -540,11 +867,12 @@ impl ClusterEditor {
     }
 
     fn draw_object_preview(&self, templates: &HashMap<String, GltfTemplate>, cursor: Vec3) {
+        let snapped = self.placement_pos(cursor);
         if let Some(asset) = self.selected_asset() {
             if let Some(template) = templates.get(&asset.key) {
                 for mesh in instantiate(
                     template,
-                    vec3(cursor.x, 0.02, cursor.z),
+                    vec3(snapped.x, 0.02, snapped.z),
                     self.rotation,
                     self.scale,
                 ) {
@@ -552,7 +880,16 @@ impl ClusterEditor {
                 }
             }
         }
-        draw_cube_wires(vec3(cursor.x, 0.08, cursor.z), vec3(1.0, 0.12, 1.0), ORANGE);
+        let preview_size = if self.grid_snap_enabled {
+            GRID_STEP
+        } else {
+            1.0
+        };
+        draw_cube_wires(
+            vec3(snapped.x, 0.08, snapped.z),
+            vec3(preview_size, 0.12, preview_size),
+            ORANGE,
+        );
     }
 
     fn draw_biome_regions(&self) {
@@ -598,6 +935,18 @@ impl ClusterEditor {
         }
     }
 
+    fn draw_spawn_indicator(&self) {
+        let p = self.camera_target;
+        // Draw a blue glowing beacon at the spawn point (camera target)
+        draw_ring(vec3(p.x, 0.05, p.z), 1.0, 32, SKYBLUE);
+        draw_ring(vec3(p.x, 0.08, p.z), 0.8, 24, BLUE);
+        draw_line_3d(vec3(p.x, 0.0, p.z), vec3(p.x, 1.5, p.z), SKYBLUE);
+        draw_sphere(vec3(p.x, 1.5, p.z), 0.15, None, SKYBLUE);
+
+        // Add a "SPAWN" text floating above it
+        // We can't easily draw 3D text in macroquad without a helper, so we'll just stick to the beacon for now
+    }
+
     fn new_cluster(&mut self) {
         let index = self.map.clusters.len() + 1;
         self.map.clusters.insert(
@@ -619,6 +968,10 @@ impl ClusterEditor {
             EditorTool::Biomes => {
                 self.map.biome_regions.pop();
                 self.status = String::from("Removed last biome region.");
+            }
+            EditorTool::Select => {
+                self.selected_placements.clear();
+                self.status = String::from("Cleared selection.");
             }
         }
     }
@@ -664,6 +1017,226 @@ impl ClusterEditor {
             Err(err) => self.status = format!("Save failed: {}", err),
         }
     }
+
+    fn update_selection(&mut self) {
+        let cursor = self.mouse_ground_pos();
+
+        if !self.selected_placements.is_empty() {
+            if is_key_pressed(KeyCode::R) {
+                self.rotate_selected(ROTATION_STEP);
+            }
+            if is_key_pressed(KeyCode::T) {
+                self.rotate_selected(-ROTATION_STEP);
+            }
+        }
+
+        // 1. Hover detection
+        self.hovered_placement = None;
+        if let Some(pos) = cursor {
+            let mut closest_dist_sq = 4.0; // 2.0 units radius
+            for (c_idx, cluster) in self.map.clusters.iter().enumerate() {
+                for (p_idx, placement) in cluster.placements.iter().enumerate() {
+                    let p_pos = placement.pos_vec3();
+                    let d2 = (p_pos - pos).length_squared();
+                    if d2 < closest_dist_sq {
+                        closest_dist_sq = d2;
+                        self.hovered_placement = Some((c_idx, p_idx));
+                    }
+                }
+            }
+        }
+
+        // 2. Click to select
+        if is_mouse_button_pressed(MouseButton::Left) {
+            if let Some(hovered) = self.hovered_placement {
+                let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+                if shift {
+                    // Toggle selection
+                    if let Some(pos) = self.selected_placements.iter().position(|&p| p == hovered) {
+                        self.selected_placements.remove(pos);
+                    } else {
+                        self.selected_placements.push(hovered);
+                    }
+                } else {
+                    // If not already selected, clear and select this one
+                    if !self.selected_placements.contains(&hovered) {
+                        self.selected_placements.clear();
+                        self.selected_placements.push(hovered);
+                    }
+                }
+
+                // Start dragging if we have a selection
+                if !self.selected_placements.is_empty() {
+                    self.is_dragging = true;
+                    self.drag_start_pos = cursor.unwrap_or(Vec3::ZERO);
+                    self.drag_original_positions = self
+                        .selected_placements
+                        .iter()
+                        .map(|&(c, p)| self.map.clusters[c].placements[p].pos_vec3())
+                        .collect();
+                }
+            } else {
+                // Clicked empty ground
+                self.selected_placements.clear();
+            }
+        }
+
+        // 3. Dragging
+        if self.is_dragging {
+            if is_mouse_button_down(MouseButton::Left) {
+                if let Some(current_pos) = cursor {
+                    let drag_pos = if self.grid_snap_enabled {
+                        self.snap_world_pos(current_pos, GRID_STEP)
+                    } else {
+                        current_pos
+                    };
+                    let drag_start = if self.grid_snap_enabled {
+                        self.snap_world_pos(self.drag_start_pos, GRID_STEP)
+                    } else {
+                        self.drag_start_pos
+                    };
+                    let delta = drag_pos - drag_start;
+                    for (i, &(c, p)) in self.selected_placements.iter().enumerate() {
+                        let orig_pos = self.drag_original_positions[i];
+                        let new_pos = orig_pos + delta;
+                        self.map.clusters[c].placements[p].position = [new_pos.x, 0.0, new_pos.z];
+                    }
+                }
+            } else {
+                self.is_dragging = false;
+                self.status = String::from("Moved selection.");
+            }
+        }
+    }
+
+    fn draw_selection_highlights(&self, _templates: &HashMap<String, GltfTemplate>) {
+        // Draw hovered highlight
+        if let Some((c, p)) = self.hovered_placement {
+            let placement = &self.map.clusters[c].placements[p];
+            draw_cube_wires(
+                placement.pos_vec3() + vec3(0.0, 0.5, 0.0),
+                vec3(1.5, 1.0, 1.5) * placement.scale,
+                ORANGE,
+            );
+        }
+
+        // Draw selected highlights
+        for &(c, p) in &self.selected_placements {
+            let placement = &self.map.clusters[c].placements[p];
+            draw_cube_wires(
+                placement.pos_vec3() + vec3(0.0, 0.6, 0.0),
+                vec3(1.6, 1.2, 1.6) * placement.scale,
+                YELLOW,
+            );
+        }
+    }
+
+    fn delete_selected(&mut self) {
+        let mut by_cluster: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &(c, p) in &self.selected_placements {
+            by_cluster.entry(c).or_default().push(p);
+        }
+
+        for (c_idx, mut p_indices) in by_cluster {
+            p_indices.sort_unstable_by(|a, b| b.cmp(a));
+            for p_idx in p_indices {
+                if c_idx < self.map.clusters.len()
+                    && p_idx < self.map.clusters[c_idx].placements.len()
+                {
+                    self.map.clusters[c_idx].placements.remove(p_idx);
+                }
+            }
+        }
+
+        self.status = format!("Deleted {} objects.", self.selected_placements.len());
+        self.selected_placements.clear();
+        self.hovered_placement = None;
+    }
+
+    pub fn clear_map(&mut self) {
+        self.map = MapDocument::new("dev_map");
+        self.selected_placements.clear();
+        self.hovered_placement = None;
+        self.status = String::from("Map cleared.");
+    }
+
+    fn group_selection(&mut self) {
+        let count = self.selected_placements.len();
+        let mut new_placements = Vec::new();
+
+        let mut by_cluster: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &(c, p) in &self.selected_placements {
+            by_cluster.entry(c).or_default().push(p);
+        }
+
+        for (c_idx, mut p_indices) in by_cluster {
+            p_indices.sort_unstable_by(|a, b| b.cmp(a));
+            for p_idx in p_indices {
+                if c_idx < self.map.clusters.len()
+                    && p_idx < self.map.clusters[c_idx].placements.len()
+                {
+                    new_placements.push(self.map.clusters[c_idx].placements.remove(p_idx));
+                }
+            }
+        }
+
+        let cluster_name = format!("group_{}", get_time() as u32);
+        let mut new_cluster = crate::world::cluster::WorldCluster::new(
+            cluster_name.clone(),
+            BIOMES[self.selected_biome],
+        );
+        new_cluster.placements = new_placements;
+        self.map.clusters.insert(0, new_cluster);
+
+        self.selected_placements.clear();
+        self.status = format!("Grouped {} objects into {}.", count, cluster_name);
+    }
+
+    fn rotate_selected(&mut self, delta: f32) {
+        for &(c, p) in &self.selected_placements {
+            if let Some(placement) = self
+                .map
+                .clusters
+                .get_mut(c)
+                .and_then(|cluster| cluster.placements.get_mut(p))
+            {
+                placement.rotation += delta;
+            }
+        }
+        self.status = String::from("Rotated selection.");
+    }
+
+    fn snap_world_pos(&self, pos: Vec3, step: f32) -> Vec3 {
+        vec3(
+            (pos.x / step).round() * step,
+            pos.y,
+            (pos.z / step).round() * step,
+        )
+    }
+
+    fn placement_pos(&self, pos: Vec3) -> Vec3 {
+        if self.grid_snap_enabled {
+            self.snap_world_pos(pos, GRID_STEP)
+        } else {
+            pos
+        }
+    }
+
+    fn pointer_over_panel(&self) -> bool {
+        let (mx, _) = mouse_position();
+        let sw = screen_width();
+        let left_w = if self.left_collapsed {
+            12.0
+        } else {
+            TOOLBAR_WIDTH
+        };
+        let right_w = if self.right_collapsed {
+            12.0
+        } else {
+            SIDEBAR_WIDTH
+        };
+        mx < left_w || mx > sw - right_w
+    }
 }
 
 fn discover_model_assets() -> Vec<ModelAsset> {
@@ -707,17 +1280,6 @@ fn ctrl_down() -> bool {
 
 fn rect_contains(x: f32, y: f32, w: f32, h: f32, point: (f32, f32)) -> bool {
     point.0 >= x && point.0 <= x + w && point.1 >= y && point.1 <= y + h
-}
-
-fn draw_button_rect(x: f32, y: f32, w: f32, h: f32, label: &str, active: bool) {
-    let color = if active {
-        Color::new(0.42, 0.22, 0.05, 1.0)
-    } else {
-        Color::new(0.10, 0.10, 0.10, 1.0)
-    };
-    draw_rectangle(x, y, w, h, color);
-    draw_rectangle_lines(x, y, w, h, 1.0, GRAY);
-    draw_text(label, x + 8.0, y + 20.0, 16.0, WHITE);
 }
 
 fn truncate_label(label: &str, max_chars: usize) -> String {

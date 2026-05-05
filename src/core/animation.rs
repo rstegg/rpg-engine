@@ -1,4 +1,77 @@
 use macroquad::prelude::*;
+use macroquad::window::miniquad::{
+    BlendFactor, BlendState, BlendValue, Comparison, Equation, PipelineParams,
+};
+use std::sync::OnceLock;
+
+const BILLBOARD_VERTEX: &str = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+
+varying lowp vec2 uv;
+varying lowp vec4 color;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1.0);
+    uv = texcoord;
+    color = color0 / 255.0;
+}"#;
+
+const BILLBOARD_FRAGMENT: &str = r#"#version 100
+varying lowp vec2 uv;
+varying lowp vec4 color;
+
+uniform sampler2D Texture;
+
+void main() {
+    lowp vec4 tex = texture2D(Texture, uv) * color;
+    if (tex.a < 0.1) {
+        discard;
+    }
+    gl_FragColor = tex;
+}"#;
+
+static BILLBOARD_MATERIAL: OnceLock<Material> = OnceLock::new();
+
+fn billboard_material() -> &'static Material {
+    BILLBOARD_MATERIAL.get_or_init(|| {
+        load_material(
+            ShaderSource::Glsl {
+                vertex: BILLBOARD_VERTEX,
+                fragment: BILLBOARD_FRAGMENT,
+            },
+            MaterialParams {
+                pipeline_params: PipelineParams {
+                    depth_test: Comparison::LessOrEqual,
+                    depth_write: true,
+                    color_blend: Some(BlendState::new(
+                        Equation::Add,
+                        BlendFactor::Value(BlendValue::SourceAlpha),
+                        BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                    )),
+                    alpha_blend: Some(BlendState::new(
+                        Equation::Add,
+                        BlendFactor::One,
+                        BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                    )),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .expect("failed to create billboard material")
+    })
+}
+
+pub fn with_billboard_material<F: FnOnce()>(draw: F) {
+    gl_use_material(billboard_material());
+    draw();
+    gl_use_default_material();
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
@@ -24,14 +97,14 @@ impl Direction {
         // atan2(-1, -1) = -3PI/4 => NorthWest
         // atan2(-1, 0) = -PI/2   => West
         // atan2(-1, 1) = -PI/4   => SouthWest
-        
+
         let mut angle = f32::atan2(dir.x, dir.z);
         if angle < 0.0 {
             angle += std::f32::consts::PI * 2.0;
         }
 
         let octant = (angle / (std::f32::consts::PI / 4.0)).round() as i32 % 8;
-        
+
         match octant {
             0 => Direction::South,
             1 => Direction::SouthEast,
@@ -117,16 +190,16 @@ impl AnimationManager {
     pub fn update(&mut self, dt: f32, move_speed: f32) {
         let frames = self.get_frame_indices();
         let frame_count = frames.len() as f32;
-        
+
         // Different animations have different base speeds
         let anim_fps = match self.state {
             AnimationState::Idle | AnimationState::CarryIdle => 2.0, // Slower idle
             AnimationState::Walk | AnimationState::CarryWalk => 4.0 + (move_speed * 1.5), // Scales with movement speed
             _ => 8.0, // Fixed faster speed for attacks/actions
         };
-        
+
         self.current_frame += dt * anim_fps;
-        
+
         if self.current_frame >= frame_count {
             match self.state {
                 AnimationState::Death
@@ -155,15 +228,9 @@ impl AnimationManager {
         let frame_w = tex_w / self.config.columns as f32;
         let frame_h = tex_h / self.config.rows as f32;
 
-        Rect::new(
-            col as f32 * frame_w,
-            row as f32 * frame_h,
-            frame_w,
-            frame_h,
-        )
+        Rect::new(col as f32 * frame_w, row as f32 * frame_h, frame_w, frame_h)
     }
 }
-
 
 // 5. TECHNICAL RENDERING HELPER
 // Renders the character as a billboard that faces the camera.
@@ -186,7 +253,7 @@ pub fn draw_character_billboard_ex(
 ) {
     // Respect aspect ratio of the sprite frame to prevent squishing
     let aspect_ratio = source_rect.w / source_rect.h;
-    let size = vec2(base_size * aspect_ratio, base_size); 
+    let size = vec2(base_size * aspect_ratio, base_size);
     let half_w = size.x / 2.0;
     let half_h = size.y / 2.0;
 
@@ -198,9 +265,9 @@ pub fn draw_character_billboard_ex(
     let center = pos + vec3(0.0, half_h * 0.5, 0.0);
 
     let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
-    let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
-    let p3 = center + rot.transform_point3(vec3( half_w,  half_h, 0.0));
-    let p4 = center + rot.transform_point3(vec3(-half_w,  half_h, 0.0));
+    let p2 = center + rot.transform_point3(vec3(half_w, -half_h, 0.0));
+    let p3 = center + rot.transform_point3(vec3(half_w, half_h, 0.0));
+    let p4 = center + rot.transform_point3(vec3(-half_w, half_h, 0.0));
 
     let tex_w = texture.width();
     let tex_h = texture.height();
@@ -223,6 +290,6 @@ pub fn draw_character_billboard_ex(
         indices,
         texture: Some(texture.clone()),
     };
-    
-    draw_mesh(&mesh);
+
+    with_billboard_material(|| draw_mesh(&mesh));
 }

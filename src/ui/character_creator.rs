@@ -1,6 +1,6 @@
-use macroquad::prelude::*;
-use crate::entities::character::*;
 use crate::core::animation::*;
+use crate::entities::character::*;
+use macroquad::prelude::*;
 
 /// The character creator UI state.
 pub struct CharacterCreator {
@@ -17,7 +17,10 @@ pub struct CharacterCreator {
 
 impl CharacterCreator {
     pub fn new(catalog: LayerCatalog) -> Self {
-        let config = SpriteSheetConfig { columns: 29, rows: 8 };
+        let config = SpriteSheetConfig {
+            columns: 29,
+            rows: 8,
+        };
         // Default: first skin selected, everything else None
         let mut selected_indices = [None; 10];
         selected_indices[0] = Some(0); // First skin
@@ -119,14 +122,26 @@ impl CharacterCreator {
         let panel_left_x = margin;
         let panel_left_w = (usable_w * 0.18).max(160.0); // ~18% for categories
         let preview_x = panel_left_x + panel_left_w + 15.0;
-        let preview_w = (usable_w * 0.28).max(200.0);    // ~28% for preview
+        let preview_w = (usable_w * 0.28).max(200.0); // ~28% for preview
         let options_x = preview_x + preview_w + 15.0;
-        let options_w = sw - options_x - margin;           // Remainder for options
+        let options_w = sw - options_x - margin; // Remainder for options
         let top_y = 70.0;
 
         // ─── LEFT PANEL: Category Buttons ───
-        draw_rectangle(panel_left_x - 5.0, top_y - 5.0, panel_left_w + 10.0, sh - top_y - 80.0, Color::new(0.12, 0.12, 0.18, 1.0));
-        draw_text("LAYERS", panel_left_x + 10.0, top_y + 20.0, 22.0, Color::new(0.6, 0.6, 0.8, 1.0));
+        draw_rectangle(
+            panel_left_x - 5.0,
+            top_y - 5.0,
+            panel_left_w + 10.0,
+            sh - top_y - 80.0,
+            Color::new(0.12, 0.12, 0.18, 1.0),
+        );
+        draw_text(
+            "LAYERS",
+            panel_left_x + 10.0,
+            top_y + 20.0,
+            22.0,
+            Color::new(0.6, 0.6, 0.8, 1.0),
+        );
 
         let (mx, my) = mouse_position();
         let clicked = is_mouse_button_pressed(MouseButton::Left);
@@ -135,8 +150,10 @@ impl CharacterCreator {
             let btn_y = top_y + 35.0 + i as f32 * 38.0;
             let btn_h = 32.0;
             let is_selected = self.selected_category == *cat;
-            let is_hovered = mx >= panel_left_x && mx <= panel_left_x + panel_left_w
-                && my >= btn_y && my <= btn_y + btn_h;
+            let is_hovered = mx >= panel_left_x
+                && mx <= panel_left_x + panel_left_w
+                && my >= btn_y
+                && my <= btn_y + btn_h;
 
             let bg = if is_selected {
                 Color::new(0.3, 0.3, 0.6, 1.0)
@@ -147,11 +164,22 @@ impl CharacterCreator {
             };
 
             draw_rectangle(panel_left_x, btn_y, panel_left_w, btn_h, bg);
-            draw_rectangle_lines(panel_left_x, btn_y, panel_left_w, btn_h, 1.0, Color::new(0.3, 0.3, 0.4, 1.0));
+            draw_rectangle_lines(
+                panel_left_x,
+                btn_y,
+                panel_left_w,
+                btn_h,
+                1.0,
+                Color::new(0.3, 0.3, 0.4, 1.0),
+            );
 
             // Show a dot if something is selected for this category
             let cat_idx = Self::category_index(*cat);
-            let has_selection = if cat_idx == 0 { true } else { self.selected_indices[cat_idx].is_some() };
+            let has_selection = if cat_idx == 0 {
+                true
+            } else {
+                self.selected_indices[cat_idx].is_some()
+            };
             if has_selection {
                 draw_circle(panel_left_x + 12.0, btn_y + btn_h / 2.0, 4.0, GREEN);
             }
@@ -165,8 +193,20 @@ impl CharacterCreator {
         }
 
         // ─── CENTER: Character Preview ───
-        draw_rectangle(preview_x - 5.0, top_y - 5.0, preview_w + 10.0, preview_w + 10.0 + 40.0, Color::new(0.12, 0.12, 0.18, 1.0));
-        draw_text("PREVIEW", preview_x + 10.0, top_y + 20.0, 22.0, Color::new(0.6, 0.6, 0.8, 1.0));
+        draw_rectangle(
+            preview_x - 5.0,
+            top_y - 5.0,
+            preview_w + 10.0,
+            preview_w + 10.0 + 40.0,
+            Color::new(0.12, 0.12, 0.18, 1.0),
+        );
+        draw_text(
+            "PREVIEW",
+            preview_x + 10.0,
+            top_y + 20.0,
+            22.0,
+            Color::new(0.6, 0.6, 0.8, 1.0),
+        );
 
         // Preview is South/Idle by default
         self.preview_anim.state = AnimationState::Idle;
@@ -195,11 +235,23 @@ impl CharacterCreator {
 
         // ─── RIGHT PANEL: Options Grid ───
         let cat_idx = Self::category_index(self.selected_category);
-        let options = self.get_options_for_category(self.selected_category).to_vec();
+        let options = self
+            .get_options_for_category(self.selected_category)
+            .to_vec();
 
-        draw_rectangle(options_x - 5.0, top_y - 5.0, options_w + 10.0, sh - top_y - 80.0, Color::new(0.12, 0.12, 0.18, 1.0));
+        draw_rectangle(
+            options_x - 5.0,
+            top_y - 5.0,
+            options_w + 10.0,
+            sh - top_y - 80.0,
+            Color::new(0.12, 0.12, 0.18, 1.0),
+        );
         draw_text(
-            &format!("{} OPTIONS ({})", self.selected_category.label().to_uppercase(), options.len()),
+            &format!(
+                "{} OPTIONS ({})",
+                self.selected_category.label().to_uppercase(),
+                options.len()
+            ),
             options_x + 10.0,
             top_y + 20.0,
             22.0,
@@ -212,11 +264,27 @@ impl CharacterCreator {
             let btn_w = options_w - 20.0;
             let btn_h = 28.0;
             let is_none = self.selected_indices[cat_idx].is_none();
-            let hovered = mx >= options_x + 10.0 && mx <= options_x + 10.0 + btn_w && my >= opt_y && my <= opt_y + btn_h;
-            let bg = if is_none { Color::new(0.4, 0.2, 0.2, 1.0) } else if hovered { Color::new(0.25, 0.2, 0.2, 1.0) } else { Color::new(0.18, 0.15, 0.15, 1.0) };
+            let hovered = mx >= options_x + 10.0
+                && mx <= options_x + 10.0 + btn_w
+                && my >= opt_y
+                && my <= opt_y + btn_h;
+            let bg = if is_none {
+                Color::new(0.4, 0.2, 0.2, 1.0)
+            } else if hovered {
+                Color::new(0.25, 0.2, 0.2, 1.0)
+            } else {
+                Color::new(0.18, 0.15, 0.15, 1.0)
+            };
 
             draw_rectangle(options_x + 10.0, opt_y, btn_w, btn_h, bg);
-            draw_rectangle_lines(options_x + 10.0, opt_y, btn_w, btn_h, 1.0, Color::new(0.4, 0.3, 0.3, 1.0));
+            draw_rectangle_lines(
+                options_x + 10.0,
+                opt_y,
+                btn_w,
+                btn_h,
+                1.0,
+                Color::new(0.4, 0.3, 0.3, 1.0),
+            );
             draw_text("None", options_x + 20.0, opt_y + 20.0, 16.0, WHITE);
 
             if hovered && clicked && !is_none {
@@ -236,8 +304,10 @@ impl CharacterCreator {
 
         // Handle mouse wheel scrolling when hovering over the options panel
         let panel_bottom = sh - 80.0;
-        let mouse_in_options = mx >= options_x - 5.0 && mx <= options_x + options_w + 5.0
-            && my >= top_y && my <= panel_bottom;
+        let mouse_in_options = mx >= options_x - 5.0
+            && mx <= options_x + options_w + 5.0
+            && my >= top_y
+            && my <= panel_bottom;
         if mouse_in_options {
             let (_, wheel_y) = mouse_wheel();
             if wheel_y < 0.0 && self.scroll_offset + max_visible < total_options {
@@ -248,7 +318,11 @@ impl CharacterCreator {
         }
 
         // Clamp scroll offset
-        let max_scroll = if total_options > max_visible { total_options - max_visible } else { 0 };
+        let max_scroll = if total_options > max_visible {
+            total_options - max_visible
+        } else {
+            0
+        };
         if self.scroll_offset > max_scroll {
             self.scroll_offset = max_scroll;
         }
@@ -258,20 +332,38 @@ impl CharacterCreator {
             let scrollbar_x = options_x + options_w - 5.0;
             let scrollbar_h = panel_bottom - opt_y - 10.0;
             let thumb_h = (max_visible as f32 / total_options as f32) * scrollbar_h;
-            let thumb_y = opt_y + (self.scroll_offset as f32 / max_scroll as f32) * (scrollbar_h - thumb_h);
+            let thumb_y =
+                opt_y + (self.scroll_offset as f32 / max_scroll as f32) * (scrollbar_h - thumb_h);
 
-            draw_rectangle(scrollbar_x, opt_y, 4.0, scrollbar_h, Color::new(0.1, 0.1, 0.15, 1.0));
-            draw_rectangle(scrollbar_x, thumb_y, 4.0, thumb_h, Color::new(0.4, 0.4, 0.6, 1.0));
+            draw_rectangle(
+                scrollbar_x,
+                opt_y,
+                4.0,
+                scrollbar_h,
+                Color::new(0.1, 0.1, 0.15, 1.0),
+            );
+            draw_rectangle(
+                scrollbar_x,
+                thumb_y,
+                4.0,
+                thumb_h,
+                Color::new(0.4, 0.4, 0.6, 1.0),
+            );
         }
 
         for vis_idx in 0..max_visible {
             let i = vis_idx + self.scroll_offset;
-            if i >= total_options { break; }
+            if i >= total_options {
+                break;
+            }
             let opt = &options[i];
 
             let by = opt_y + vis_idx as f32 * (btn_h + 4.0);
             let is_selected = self.selected_indices[cat_idx] == Some(i);
-            let hovered = mx >= options_x + 10.0 && mx <= options_x + 10.0 + btn_w && my >= by && my <= by + btn_h;
+            let hovered = mx >= options_x + 10.0
+                && mx <= options_x + 10.0 + btn_w
+                && my >= by
+                && my <= by + btn_h;
 
             let bg = if is_selected {
                 Color::new(0.2, 0.4, 0.2, 1.0)
@@ -282,7 +374,14 @@ impl CharacterCreator {
             };
 
             draw_rectangle(options_x + 10.0, by, btn_w, btn_h, bg);
-            draw_rectangle_lines(options_x + 10.0, by, btn_w, btn_h, 1.0, Color::new(0.3, 0.3, 0.4, 1.0));
+            draw_rectangle_lines(
+                options_x + 10.0,
+                by,
+                btn_w,
+                btn_h,
+                1.0,
+                Color::new(0.3, 0.3, 0.4, 1.0),
+            );
 
             if is_selected {
                 draw_circle(options_x + 22.0, by + btn_h / 2.0, 4.0, GREEN);
@@ -306,10 +405,22 @@ impl CharacterCreator {
         let btn_y = sh - 65.0;
 
         // Helper to draw a button and return whether it was clicked
-        let draw_button = |x: f32, label: &str, base_color: Color, border_color: Color, mx: f32, my: f32, clicked: bool| -> bool {
+        let draw_button = |x: f32,
+                           label: &str,
+                           base_color: Color,
+                           border_color: Color,
+                           mx: f32,
+                           my: f32,
+                           clicked: bool|
+         -> bool {
             let hovered = mx >= x && mx <= x + btn_w && my >= btn_y && my <= btn_y + btn_h;
             let bg = if hovered {
-                Color::new(base_color.r + 0.1, base_color.g + 0.1, base_color.b + 0.1, 1.0)
+                Color::new(
+                    base_color.r + 0.1,
+                    base_color.g + 0.1,
+                    base_color.b + 0.1,
+                    1.0,
+                )
             } else {
                 base_color
             };
@@ -326,7 +437,9 @@ impl CharacterCreator {
             "RANDOMIZE",
             Color::new(0.35, 0.25, 0.55, 1.0),
             Color::new(0.5, 0.4, 0.7, 1.0),
-            mx, my, clicked,
+            mx,
+            my,
+            clicked,
         );
 
         // RESET
@@ -335,7 +448,9 @@ impl CharacterCreator {
             "RESET",
             Color::new(0.5, 0.2, 0.15, 1.0),
             Color::new(0.7, 0.3, 0.3, 1.0),
-            mx, my, clicked,
+            mx,
+            my,
+            clicked,
         );
 
         // CONFIRM
@@ -344,7 +459,9 @@ impl CharacterCreator {
             "CONFIRM",
             Color::new(0.15, 0.45, 0.15, 1.0),
             Color::new(0.3, 0.7, 0.3, 1.0),
-            mx, my, clicked,
+            mx,
+            my,
+            clicked,
         );
 
         if randomize_clicked {
@@ -370,7 +487,11 @@ impl CharacterCreator {
 
     fn randomize(&mut self) {
         let rand_opt = |count: usize| -> Option<usize> {
-            if count == 0 { None } else { Some(macroquad::rand::gen_range(0, count as i32) as usize) }
+            if count == 0 {
+                None
+            } else {
+                Some(macroquad::rand::gen_range(0, count as i32) as usize)
+            }
         };
 
         // Skin is always required
@@ -378,8 +499,14 @@ impl CharacterCreator {
 
         // Optional layers: ~70% chance of having something, 30% None
         let maybe = |count: usize| -> Option<usize> {
-            if count == 0 { return None; }
-            if macroquad::rand::gen_range(0, 100) < 30 { None } else { rand_opt(count) }
+            if count == 0 {
+                return None;
+            }
+            if macroquad::rand::gen_range(0, 100) < 30 {
+                None
+            } else {
+                rand_opt(count)
+            }
         };
 
         self.selected_indices[1] = maybe(self.catalog.shoes.len());

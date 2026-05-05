@@ -32,7 +32,7 @@ impl GameCamera {
         let ray_origin = inv_vp.project_point3(vec3(ndc_x, ndc_y, -1.0));
         let far_pt = inv_vp.project_point3(vec3(ndc_x, ndc_y, 1.0));
         let ray_direction = (far_pt - ray_origin).normalize();
-        
+
         if ray_direction.y != 0.0 {
             let t = -ray_origin.y / ray_direction.y;
             if t > 0.0 {

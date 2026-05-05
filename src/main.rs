@@ -13,10 +13,15 @@ use entities::player::*;
 use macroquad::prelude::*;
 use net::client::NetClient;
 use net::protocol::*;
+use std::collections::BTreeMap;
 use systems::cluster_editor::*;
 use systems::indicators::*;
 use systems::input::*;
 use ui::character_creator::*;
+use world::environment::{self, HitboxConfig};
+
+const HITBOX_SIDEBAR_WIDTH: f32 = 320.0;
+const HITBOX_ROW_HEIGHT: f32 = 24.0;
 
 pub struct Assets {
     pub icon_q: Texture2D,
@@ -53,6 +58,85 @@ async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
     });
     tex.set_filter(FilterMode::Nearest);
     tex
+}
+
+fn ground_intersection(camera: &Camera3D) -> Option<Vec3> {
+    let (mouse_x, mouse_y) = mouse_position();
+    let ndc_x = (mouse_x / screen_width()) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (mouse_y / screen_height()) * 2.0;
+    let inv_vp = camera.matrix().inverse();
+    let ray_origin = inv_vp.project_point3(vec3(ndc_x, ndc_y, -1.0));
+    let far_point = inv_vp.project_point3(vec3(ndc_x, ndc_y, 1.0));
+    let ray_direction = (far_point - ray_origin).normalize();
+
+    if ray_direction.y.abs() <= f32::EPSILON {
+        return None;
+    }
+
+    let t = -ray_origin.y / ray_direction.y;
+    if t <= 0.0 {
+        return None;
+    }
+
+    let point = ray_origin + ray_direction * t;
+    Some(vec3(point.x, 0.0, point.z))
+}
+
+fn rect_contains(x: f32, y: f32, w: f32, h: f32, point: (f32, f32)) -> bool {
+    point.0 >= x && point.0 <= x + w && point.1 >= y && point.1 <= y + h
+}
+
+fn discover_hitbox_calibration_models() -> BTreeMap<String, String> {
+    let mut models = BTreeMap::new();
+
+    for (key, file) in environment::builtin_template_defs() {
+        models.insert(key.to_string(), format!("assets/world_models/{file}"));
+    }
+
+    if let Ok(entries) = std::fs::read_dir("assets/world_models") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("glb") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            models
+                .entry(stem.to_string())
+                .or_insert_with(|| format!("assets/world_models/{file_name}"));
+        }
+    }
+
+    models
+}
+
+async fn rebuild_world_from_current_placements(
+    world_env: &mut world::environment::WorldEnvironment,
+    hitbox_config: &HitboxConfig,
+) {
+    let placements = world_env.placements.clone();
+    *world_env =
+        world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
+
+    for placement in placements {
+        if !world_env.templates.contains_key(&placement.model) {
+            if let Some(template) = world::environment::load_glb_template(&format!(
+                "assets/world_models/{}",
+                placement.file
+            ))
+            .await
+            {
+                world_env
+                    .templates
+                    .insert(placement.model.clone(), template);
+            }
+        }
+        world_env.add_placement(&placement, hitbox_config);
+    }
 }
 
 #[macroquad::main("2.5D Indie RPG")]
@@ -101,14 +185,14 @@ async fn main() {
         stuck_timer: 0.0,
     };
 
-    let mut hitbox_config: std::collections::HashMap<String, f32> =
-        match std::fs::read_to_string("hitbox_config.json") {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-            Err(_) => std::collections::HashMap::new(),
-        };
+    let mut hitbox_config: HitboxConfig = match std::fs::read_to_string("hitbox_config.json") {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => HitboxConfig::new(),
+    };
+    let hitbox_models = discover_hitbox_calibration_models();
 
     let mut world_env =
-        world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone()).await;
+        world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), true).await;
     let mut debug_pathfinding = false;
 
     let mut game_camera = GameCamera::new(hero.pos);
@@ -134,9 +218,17 @@ async fn main() {
 
     // Calibration state
     let mut calibration_selected_idx = 0;
+    let mut calibration_last_paint: Option<([i32; 2], bool)> = None;
+    let mut calibration_camera_yaw = 0.0_f32;
+    let mut calibration_camera_distance = 10.0_f32;
+    let mut calibration_search_text = String::new();
+    let mut calibration_search_focused = false;
+    let mut calibration_list_scroll = 0usize;
     // Ensure all templates have an entry in hitbox_config
-    for key in world_env.templates.keys() {
-        hitbox_config.entry(key.clone()).or_insert(1.0);
+    for key in hitbox_models.keys() {
+        hitbox_config
+            .entry(key.clone())
+            .or_insert(environment::HitboxConfigEntry::Legacy(1.0));
     }
 
     loop {
@@ -162,121 +254,430 @@ async fn main() {
             GameState::HitboxCalibration => {
                 // Clear and set 3D view
                 clear_background(BLACK);
+                let sw = screen_width();
+                let sh = screen_height();
+                let sidebar_x = sw - HITBOX_SIDEBAR_WIDTH;
+                let search_y = 60.0;
+                let list_y = 125.0;
+                let (mx, my) = mouse_position();
+                let pointer_over_sidebar = mx >= sidebar_x;
+                let pointer_over_info_panel = rect_contains(10.0, 10.0, 360.0, 220.0, (mx, my));
+                let pointer_over_ui = pointer_over_sidebar || pointer_over_info_panel;
 
-                let keys: Vec<String> = {
-                    let mut k: Vec<String> = world_env.templates.keys().cloned().collect();
-                    k.sort();
-                    k
-                };
+                if is_mouse_button_pressed(MouseButton::Left) {
+                    let clicked_search = rect_contains(
+                        sidebar_x + 10.0,
+                        search_y,
+                        HITBOX_SIDEBAR_WIDTH - 20.0,
+                        24.0,
+                        (mx, my),
+                    );
+                    if clicked_search {
+                        calibration_search_focused = true;
+                    } else if !pointer_over_sidebar {
+                        calibration_search_focused = false;
+                    }
+                }
+
+                if calibration_search_focused {
+                    while let Some(c) = get_char_pressed() {
+                        if c.is_ascii() && !c.is_control() {
+                            calibration_search_text.push(c.to_ascii_lowercase());
+                            calibration_selected_idx = 0;
+                            calibration_list_scroll = 0;
+                            calibration_last_paint = None;
+                        }
+                    }
+                    if is_key_pressed(KeyCode::Backspace) && !calibration_search_text.is_empty() {
+                        calibration_search_text.pop();
+                        calibration_selected_idx = 0;
+                        calibration_list_scroll = 0;
+                        calibration_last_paint = None;
+                    }
+                }
+
+                let keys: Vec<String> = hitbox_models
+                    .keys()
+                    .filter(|key| {
+                        calibration_search_text.is_empty()
+                            || key.to_ascii_lowercase().contains(&calibration_search_text)
+                    })
+                    .cloned()
+                    .collect();
+                if keys.is_empty() {
+                    set_default_camera();
+                    draw_rectangle(
+                        sidebar_x,
+                        0.0,
+                        HITBOX_SIDEBAR_WIDTH,
+                        sh,
+                        Color::new(0.08, 0.08, 0.08, 0.95),
+                    );
+                    draw_text("HITBOX CALIBRATION", sidebar_x + 10.0, 35.0, 24.0, YELLOW);
+                    let search_color = if calibration_search_focused {
+                        Color::new(0.18, 0.18, 0.18, 1.0)
+                    } else {
+                        Color::new(0.1, 0.1, 0.1, 1.0)
+                    };
+                    draw_text("Search:", sidebar_x + 10.0, 54.0, 14.0, GRAY);
+                    draw_rectangle(
+                        sidebar_x + 10.0,
+                        search_y,
+                        HITBOX_SIDEBAR_WIDTH - 20.0,
+                        24.0,
+                        search_color,
+                    );
+                    draw_rectangle_lines(
+                        sidebar_x + 10.0,
+                        search_y,
+                        HITBOX_SIDEBAR_WIDTH - 20.0,
+                        24.0,
+                        1.0,
+                        GRAY,
+                    );
+                    draw_text(
+                        &calibration_search_text,
+                        sidebar_x + 15.0,
+                        search_y + 16.0,
+                        14.0,
+                        WHITE,
+                    );
+                    draw_text(
+                        "No models match the current filter.",
+                        sidebar_x + 10.0,
+                        110.0,
+                        18.0,
+                        ORANGE,
+                    );
+                    if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
+                        rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
+                        game_state = GameState::Playing;
+                    }
+                    continue;
+                }
                 if calibration_selected_idx >= keys.len() {
                     calibration_selected_idx = 0;
                 }
+                let mut calibration_selection_changed = false;
                 let current_key = keys[calibration_selected_idx].clone();
-
-                // Adjust multiplier
-                {
-                    let mult = hitbox_config.entry(current_key.clone()).or_insert(1.0);
-                    if is_key_pressed(KeyCode::Down) {
-                        calibration_selected_idx = (calibration_selected_idx + 1) % keys.len();
-                    }
-                    if is_key_pressed(KeyCode::Up) {
-                        calibration_selected_idx =
-                            (calibration_selected_idx + keys.len() - 1) % keys.len();
-                    }
-                    if is_key_down(KeyCode::Right) {
-                        *mult += 0.01;
-                    }
-                    if is_key_down(KeyCode::Left) {
-                        *mult = (*mult - 0.01).max(0.01);
+                if !world_env.templates.contains_key(&current_key) {
+                    if let Some(path) = hitbox_models.get(&current_key) {
+                        if let Some(template) = world::environment::load_glb_template(path).await {
+                            world_env.templates.insert(current_key.clone(), template);
+                        }
                     }
                 }
-
-                let current_mult = *hitbox_config.get(&current_key).unwrap();
 
                 if is_key_pressed(KeyCode::S) {
-                    let json = serde_json::to_string_pretty(&hitbox_config).unwrap();
-                    println!(
-                        "--- HITBOX CONFIG EXPORT ---\n{}\n---------------------------",
-                        json
-                    );
+                    if let Ok(json) = serde_json::to_string_pretty(&hitbox_config) {
+                        let _ = std::fs::write("hitbox_config.json", json);
+                    }
+                    rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
                 }
                 if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
+                    rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
                     game_state = GameState::Playing;
+                }
+                if is_key_pressed(KeyCode::Down) {
+                    calibration_selected_idx = (calibration_selected_idx + 1) % keys.len();
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+                if is_key_pressed(KeyCode::Up) {
+                    calibration_selected_idx =
+                        (calibration_selected_idx + keys.len() - 1) % keys.len();
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+                if is_key_pressed(KeyCode::PageDown) {
+                    calibration_selected_idx = (calibration_selected_idx + 12).min(keys.len() - 1);
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+                if is_key_pressed(KeyCode::PageUp) {
+                    calibration_selected_idx = calibration_selected_idx.saturating_sub(12);
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+                if is_key_pressed(KeyCode::Home) {
+                    calibration_selected_idx = 0;
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+                if is_key_pressed(KeyCode::End) {
+                    calibration_selected_idx = keys.len() - 1;
+                    calibration_last_paint = None;
+                    calibration_selection_changed = true;
+                }
+
+                let visible_rows = ((sh - list_y - 150.0) / HITBOX_ROW_HEIGHT).max(1.0) as usize;
+                let max_scroll = keys.len().saturating_sub(visible_rows);
+                calibration_list_scroll = calibration_list_scroll.min(max_scroll);
+                if calibration_selection_changed {
+                    if calibration_selected_idx < calibration_list_scroll {
+                        calibration_list_scroll = calibration_selected_idx;
+                    }
+                    if calibration_selected_idx >= calibration_list_scroll + visible_rows {
+                        calibration_list_scroll =
+                            calibration_selected_idx.saturating_sub(visible_rows.saturating_sub(1));
+                    }
+                }
+
+                if is_mouse_button_pressed(MouseButton::Left) && pointer_over_sidebar && my > list_y
+                {
+                    let row = ((my - list_y) / HITBOX_ROW_HEIGHT) as usize;
+                    let idx = calibration_list_scroll + row;
+                    if idx < keys.len() {
+                        calibration_selected_idx = idx;
+                        calibration_last_paint = None;
+                    }
+                }
+
+                if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+                    calibration_camera_yaw -= delta_time * 1.8;
+                }
+                if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+                    calibration_camera_yaw += delta_time * 1.8;
+                }
+                let (_, wheel_y) = mouse_wheel();
+                if wheel_y.abs() > 0.01 && pointer_over_sidebar {
+                    if wheel_y < 0.0 {
+                        calibration_list_scroll = (calibration_list_scroll + 3).min(max_scroll);
+                    } else {
+                        calibration_list_scroll = calibration_list_scroll.saturating_sub(3);
+                    }
+                } else if wheel_y.abs() > 0.01 && !pointer_over_ui {
+                    calibration_camera_distance =
+                        (calibration_camera_distance - wheel_y * 0.75).clamp(4.0, 20.0);
                 }
 
                 // Render selected model in center
-                let camera_pos = vec3(0.0, 5.0, 10.0);
+                let camera_pos = vec3(
+                    calibration_camera_yaw.sin() * calibration_camera_distance,
+                    5.0,
+                    calibration_camera_yaw.cos() * calibration_camera_distance,
+                );
                 let target = vec3(0.0, 0.0, 0.0);
-                set_camera(&Camera3D {
+                let calibration_camera = Camera3D {
                     position: camera_pos,
                     target: target,
                     up: vec3(0.0, 1.0, 0.0),
                     fovy: 45.0,
                     ..Default::default()
-                });
+                };
+                set_camera(&calibration_camera);
 
                 draw_grid(10, 2.0, GRAY, DARKGRAY);
 
                 if let Some(t) = world_env.templates.get(&current_key) {
+                    let grid_size = world_env.grid_size;
+                    let mask = environment::ensure_painted_hitbox_entry(
+                        &mut hitbox_config,
+                        &current_key,
+                        t,
+                        grid_size,
+                    );
+                    let hovered_cell = if pointer_over_ui {
+                        None
+                    } else {
+                        ground_intersection(&calibration_camera).map(|pos| {
+                            [
+                                (pos.x / grid_size).round() as i32,
+                                (pos.z / grid_size).round() as i32,
+                            ]
+                        })
+                    };
+
+                    let paint_mode = if pointer_over_ui {
+                        None
+                    } else if is_mouse_button_down(MouseButton::Left) {
+                        Some(false)
+                    } else if is_mouse_button_down(MouseButton::Right) {
+                        Some(true)
+                    } else {
+                        None
+                    };
+
+                    if let (Some(cell), Some(erase)) = (hovered_cell, paint_mode) {
+                        let should_apply = calibration_last_paint
+                            .map(|last| last != (cell, erase))
+                            .unwrap_or(true);
+                        if should_apply {
+                            if erase {
+                                mask.blocked_cells.retain(|&blocked| blocked != cell);
+                            } else if !mask.blocked_cells.contains(&cell) {
+                                mask.blocked_cells.push(cell);
+                            }
+                            mask.blocked_cells.sort_unstable();
+                            calibration_last_paint = Some((cell, erase));
+                        }
+                    } else {
+                        calibration_last_paint = None;
+                    }
+
                     // Draw the model
-                    let rot = (get_time() * 0.5) as f32;
-                    let meshes = world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), rot, 2.0);
+                    let meshes = world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), 0.0, 2.0);
                     for m in meshes {
                         draw_mesh(&m);
                     }
 
-                    // Draw the hitbox (red squares)
-                    let radius = t.footprint_radius * 2.0 * current_mult;
-                    let gs = world_env.grid_size;
-                    let cell_radius = (radius / gs).ceil() as i32;
-                    for dx in -cell_radius..=cell_radius {
-                        for dz in -cell_radius..=cell_radius {
-                            let wx = dx as f32 * gs;
-                            let wz = dz as f32 * gs;
-                            let d = (wx * wx + wz * wz).sqrt();
-                            if d <= radius {
-                                draw_cube(
-                                    vec3(wx, 0.05, wz),
-                                    vec3(gs * 0.95, 0.1, gs * 0.95),
-                                    None,
-                                    Color::new(1.0, 0.0, 0.0, 0.5),
-                                );
-                            }
-                        }
-                    }
-
-                    // Draw radius circle for reference
-                    for i in 0..32 {
-                        let a1 = (i as f32 / 32.0) * 6.28;
-                        let a2 = ((i + 1) as f32 / 32.0) * 6.28;
-                        draw_line_3d(
-                            vec3(a1.cos() * radius, 0.1, a1.sin() * radius),
-                            vec3(a2.cos() * radius, 0.1, a2.sin() * radius),
-                            RED,
+                    for &[cell_x, cell_z] in &mask.blocked_cells {
+                        draw_cube(
+                            vec3(cell_x as f32 * grid_size, 0.05, cell_z as f32 * grid_size),
+                            vec3(grid_size * 0.95, 0.1, grid_size * 0.95),
+                            None,
+                            Color::new(1.0, 0.0, 0.0, 0.5),
                         );
                     }
+
+                    if let Some([cell_x, cell_z]) = hovered_cell {
+                        draw_cube_wires(
+                            vec3(cell_x as f32 * grid_size, 0.08, cell_z as f32 * grid_size),
+                            vec3(grid_size, 0.12, grid_size),
+                            if is_mouse_button_down(MouseButton::Right) {
+                                ORANGE
+                            } else {
+                                YELLOW
+                            },
+                        );
+                    }
+
+                    for i in -8..=8 {
+                        let line = i as f32 * grid_size;
+                        draw_line_3d(
+                            vec3(line, 0.01, -8.0 * grid_size),
+                            vec3(line, 0.01, 8.0 * grid_size),
+                            DARKGRAY,
+                        );
+                        draw_line_3d(
+                            vec3(-8.0 * grid_size, 0.01, line),
+                            vec3(8.0 * grid_size, 0.01, line),
+                            DARKGRAY,
+                        );
+                    }
+                } else {
+                    calibration_last_paint = None;
                 }
 
+                let blocked_count = hitbox_config
+                    .get(&current_key)
+                    .and_then(|entry| match entry {
+                        environment::HitboxConfigEntry::Painted(mask) => {
+                            Some(mask.blocked_cells.len())
+                        }
+                        environment::HitboxConfigEntry::Legacy(_) => None,
+                    })
+                    .unwrap_or(0);
+
                 set_default_camera();
-                draw_rectangle(10.0, 10.0, 300.0, 160.0, Color::new(0.0, 0.0, 0.0, 0.7));
+                draw_rectangle(10.0, 10.0, 360.0, 220.0, Color::new(0.0, 0.0, 0.0, 0.7));
                 draw_text("HITBOX CALIBRATION", 20.0, 35.0, 24.0, YELLOW);
                 draw_text(&format!("MODEL: {}", current_key), 20.0, 65.0, 20.0, WHITE);
                 draw_text(
-                    &format!("RADIUS MULT: {:.2}", current_mult),
+                    &format!("BLOCKED CELLS: {}", blocked_count),
                     20.0,
-                    85.0,
-                    20.0,
+                    90.0,
+                    18.0,
                     GREEN,
                 );
-                draw_text("UP/DOWN: Select Model", 20.0, 115.0, 18.0, LIGHTGRAY);
-                draw_text("LEFT/RIGHT: Adjust Radius", 20.0, 135.0, 18.0, LIGHTGRAY);
                 draw_text(
-                    "S: Export to Console | F2/ESC: Exit",
+                    &format!(
+                        "Search: {}",
+                        if calibration_search_text.is_empty() {
+                            "(all)"
+                        } else {
+                            &calibration_search_text
+                        }
+                    ),
                     20.0,
-                    155.0,
+                    115.0,
                     18.0,
                     LIGHTGRAY,
                 );
+                draw_text("LMB Paint | RMB Erase", 20.0, 145.0, 18.0, LIGHTGRAY);
+                draw_text("A/D Orbit | Wheel Zoom", 20.0, 170.0, 18.0, LIGHTGRAY);
+                draw_text("S Save | F2/ESC Exit", 20.0, 195.0, 18.0, LIGHTGRAY);
+                draw_text(
+                    "Click the right panel to search and pick models.",
+                    20.0,
+                    220.0,
+                    18.0,
+                    LIGHTGRAY,
+                );
+
+                draw_rectangle(
+                    sidebar_x,
+                    0.0,
+                    HITBOX_SIDEBAR_WIDTH,
+                    sh,
+                    Color::new(0.08, 0.08, 0.08, 0.95),
+                );
+                draw_line(sidebar_x, 0.0, sidebar_x, sh, 1.0, GRAY);
+                draw_text("HITBOX CALIBRATION", sidebar_x + 10.0, 35.0, 24.0, YELLOW);
+                let search_color = if calibration_search_focused {
+                    Color::new(0.18, 0.18, 0.18, 1.0)
+                } else {
+                    Color::new(0.1, 0.1, 0.1, 1.0)
+                };
+                draw_text("Search:", sidebar_x + 10.0, 54.0, 14.0, GRAY);
+                draw_rectangle(
+                    sidebar_x + 10.0,
+                    search_y,
+                    HITBOX_SIDEBAR_WIDTH - 20.0,
+                    24.0,
+                    search_color,
+                );
+                draw_rectangle_lines(
+                    sidebar_x + 10.0,
+                    search_y,
+                    HITBOX_SIDEBAR_WIDTH - 20.0,
+                    24.0,
+                    1.0,
+                    GRAY,
+                );
+                draw_text(
+                    &calibration_search_text,
+                    sidebar_x + 15.0,
+                    search_y + 16.0,
+                    14.0,
+                    WHITE,
+                );
+                draw_text(
+                    &format!("Selected: {}", current_key),
+                    sidebar_x + 10.0,
+                    110.0,
+                    18.0,
+                    WHITE,
+                );
+                draw_text(
+                    &format!("Model {} / {}", calibration_selected_idx + 1, keys.len()),
+                    sidebar_x + 10.0,
+                    135.0,
+                    18.0,
+                    LIGHTGRAY,
+                );
+                for row in 0..visible_rows {
+                    let idx = calibration_list_scroll + row;
+                    if idx >= keys.len() {
+                        break;
+                    }
+                    let y = list_y + row as f32 * HITBOX_ROW_HEIGHT;
+                    if idx == calibration_selected_idx {
+                        draw_rectangle(
+                            sidebar_x + 5.0,
+                            y,
+                            HITBOX_SIDEBAR_WIDTH - 10.0,
+                            HITBOX_ROW_HEIGHT,
+                            Color::new(0.35, 0.18, 0.04, 1.0),
+                        );
+                    }
+                    let color = if idx == calibration_selected_idx {
+                        YELLOW
+                    } else {
+                        WHITE
+                    };
+                    draw_text(&keys[idx], sidebar_x + 10.0, y + 16.0, 14.0, color);
+                }
             }
             GameState::Connecting => {
                 // Simple connection screen
@@ -361,11 +762,33 @@ async fn main() {
                         game_state = GameState::Playing;
                         continue;
                     }
+                    EditorAction::LoadDefault => {
+                        world_env = world::environment::WorldEnvironment::new(
+                            20,
+                            20,
+                            hitbox_config.clone(),
+                            true,
+                        )
+                        .await;
+                        cluster_editor.clear_map();
+                        cluster_editor.import_placements(&world_env.placements);
+                    }
+                    EditorAction::ClearAll => {
+                        cluster_editor.clear_map();
+                        world_env = world::environment::WorldEnvironment::new(
+                            20,
+                            20,
+                            hitbox_config.clone(),
+                            false,
+                        )
+                        .await;
+                    }
                     EditorAction::PlayTest => {
                         world_env = world::environment::WorldEnvironment::new(
                             20,
                             20,
                             hitbox_config.clone(),
+                            false,
                         )
                         .await;
                         for placement in cluster_editor.all_placements() {
@@ -386,15 +809,12 @@ async fn main() {
                         hero.pos = start;
                         hero.target_pos = start;
                         hero.current_path.clear();
-                        game_camera = GameCamera::new(hero.pos);
                         game_state = GameState::Playing;
-                        continue;
                     }
-                    EditorAction::None => {}
+                    _ => {}
                 }
 
                 set_camera(cluster_editor.camera());
-                world_env.draw();
                 cluster_editor.draw_3d(&world_env.templates);
 
                 set_default_camera();

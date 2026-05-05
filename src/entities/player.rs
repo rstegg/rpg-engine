@@ -1,5 +1,5 @@
-use macroquad::prelude::*;
 use crate::core::animation::AnimationManager;
+use macroquad::prelude::*;
 
 /// Returned when the player casts a spell, so networking can forward it.
 pub struct SpellCastEvent {

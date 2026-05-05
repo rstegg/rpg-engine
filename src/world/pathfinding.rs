@@ -1,5 +1,5 @@
-use pathfinding::prelude::astar;
 use macroquad::prelude::*;
+use pathfinding::prelude::astar;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct GridPos {
@@ -32,15 +32,23 @@ pub fn line_of_sight(
 }
 
 /// Check a single world point against the walkability grid.
-fn sample_walkable(p: Vec3, grid_size: f32, width: i32, height: i32, walkability: &[Vec<bool>]) -> bool {
+fn sample_walkable(
+    p: Vec3,
+    grid_size: f32,
+    width: i32,
+    height: i32,
+    walkability: &[Vec<bool>],
+) -> bool {
     let gx = ((p.x / grid_size).round() + (width / 2) as f32) as i32;
     let gz = ((p.z / grid_size).round() + (height / 2) as f32) as i32;
-    
-    // Out of bounds samples return TRUE because we handle the world boundary 
-    // via clamping in main.rs. This prevents the character from getting 
+
+    // Out of bounds samples return TRUE because we handle the world boundary
+    // via clamping in main.rs. This prevents the character from getting
     // 'stuck' when a radius-sample point falls outside the grid.
-    if gx < 0 || gx >= width || gz < 0 || gz >= height { return true; }
-    
+    if gx < 0 || gx >= width || gz < 0 || gz >= height {
+        return true;
+    }
+
     walkability[gx as usize][gz as usize]
 }
 
@@ -56,11 +64,13 @@ pub fn is_walkable_with_radius(
     // Sample the center plus 8 points around the perimeter
     let offsets: &[(f32, f32)] = &[
         (0.0, 0.0),
-        ( radius, 0.0), (-radius, 0.0),
-        (0.0,  radius), (0.0, -radius),
-        ( radius * 0.707,  radius * 0.707),
-        (-radius * 0.707,  radius * 0.707),
-        ( radius * 0.707, -radius * 0.707),
+        (radius, 0.0),
+        (-radius, 0.0),
+        (0.0, radius),
+        (0.0, -radius),
+        (radius * 0.707, radius * 0.707),
+        (-radius * 0.707, radius * 0.707),
+        (radius * 0.707, -radius * 0.707),
         (-radius * 0.707, -radius * 0.707),
     ];
     for &(dx, dz) in offsets {
@@ -98,12 +108,25 @@ pub fn slide_move(
                 for dz in -r..=r {
                     let nx = gx + dx;
                     let nz = gz + dz;
-                    if nx >= 0 && nx < width && nz >= 0 && nz < height && walkability[nx as usize][nz as usize] {
+                    if nx >= 0
+                        && nx < width
+                        && nz >= 0
+                        && nz < height
+                        && walkability[nx as usize][nz as usize]
+                    {
                         let target_wx = (nx - width / 2) as f32 * grid_size;
                         let target_wz = (nz - height / 2) as f32 * grid_size;
-                        let push_dir = (vec3(target_wx, current.y, target_wz) - current).normalize();
+                        let push_dir =
+                            (vec3(target_wx, current.y, target_wz) - current).normalize();
                         let candidate = current + push_dir * 0.1;
-                        if is_walkable_with_radius(candidate, radius, grid_size, width, height, walkability) {
+                        if is_walkable_with_radius(
+                            candidate,
+                            radius,
+                            grid_size,
+                            width,
+                            height,
+                            walkability,
+                        ) {
                             return candidate;
                         }
                     }
@@ -142,17 +165,22 @@ pub fn find_path(
         z: ((v.z / grid_size).round() + (height / 2) as f32) as i32,
     };
 
-    let from_grid = |g: &GridPos| vec3(
-        (g.x - width / 2) as f32 * grid_size,
-        0.0,
-        (g.z - height / 2) as f32 * grid_size,
-    );
+    let from_grid = |g: &GridPos| {
+        vec3(
+            (g.x - width / 2) as f32 * grid_size,
+            0.0,
+            (g.z - height / 2) as f32 * grid_size,
+        )
+    };
 
     let mut start_grid = to_grid(start);
     let mut goal_grid = to_grid(goal);
 
     // Resilience: If start is blocked, find nearest walkable cell to start from
-    if start_grid.x >= 0 && start_grid.x < width && start_grid.z >= 0 && start_grid.z < height
+    if start_grid.x >= 0
+        && start_grid.x < width
+        && start_grid.z >= 0
+        && start_grid.z < height
         && !walkability[start_grid.x as usize][start_grid.z as usize]
     {
         let mut best: Option<GridPos> = None;
@@ -161,17 +189,30 @@ pub fn find_path(
             for dz in -5..=5i32 {
                 let nx = start_grid.x + dx;
                 let nz = start_grid.z + dz;
-                if nx >= 0 && nx < width && nz >= 0 && nz < height && walkability[nx as usize][nz as usize] {
+                if nx >= 0
+                    && nx < width
+                    && nz >= 0
+                    && nz < height
+                    && walkability[nx as usize][nz as usize]
+                {
                     let d = dx * dx + dz * dz;
-                    if d < best_dist { best_dist = d; best = Some(GridPos { x: nx, z: nz }); }
+                    if d < best_dist {
+                        best_dist = d;
+                        best = Some(GridPos { x: nx, z: nz });
+                    }
                 }
             }
         }
-        if let Some(s) = best { start_grid = s; }
+        if let Some(s) = best {
+            start_grid = s;
+        }
     }
 
     // Resilience: If goal is blocked, find the nearest walkable neighbor
-    if goal_grid.x < 0 || goal_grid.x >= width || goal_grid.z < 0 || goal_grid.z >= height
+    if goal_grid.x < 0
+        || goal_grid.x >= width
+        || goal_grid.z < 0
+        || goal_grid.z >= height
         || !walkability[goal_grid.x as usize][goal_grid.z as usize]
     {
         let mut best: Option<GridPos> = None;
@@ -180,9 +221,17 @@ pub fn find_path(
             for dz in -10..=10i32 {
                 let nx = goal_grid.x + dx;
                 let nz = goal_grid.z + dz;
-                if nx >= 0 && nx < width && nz >= 0 && nz < height && walkability[nx as usize][nz as usize] {
+                if nx >= 0
+                    && nx < width
+                    && nz >= 0
+                    && nz < height
+                    && walkability[nx as usize][nz as usize]
+                {
                     let d = dx * dx + dz * dz;
-                    if d < best_dist { best_dist = d; best = Some(GridPos { x: nx, z: nz }); }
+                    if d < best_dist {
+                        best_dist = d;
+                        best = Some(GridPos { x: nx, z: nz });
+                    }
                 }
             }
         }
@@ -195,20 +244,30 @@ pub fn find_path(
             let mut neighbors: Vec<(GridPos, i32)> = Vec::new();
             for dx in -1..=1i32 {
                 for dz in -1..=1i32 {
-                    if dx == 0 && dz == 0 { continue; }
+                    if dx == 0 && dz == 0 {
+                        continue;
+                    }
                     let nx = p.x + dx;
                     let nz = p.z + dz;
-                    if nx < 0 || nx >= width || nz < 0 || nz >= height { continue; }
-                    if !walkability[nx as usize][nz as usize] { continue; }
+                    if nx < 0 || nx >= width || nz < 0 || nz >= height {
+                        continue;
+                    }
+                    if !walkability[nx as usize][nz as usize] {
+                        continue;
+                    }
 
                     let is_diagonal = dx != 0 && dz != 0;
                     if is_diagonal {
                         // ── No corner-cutting: both cardinal neighbors must be walkable ──
-                        let card_x_ok = p.x + dx >= 0 && p.x + dx < width
+                        let card_x_ok = p.x + dx >= 0
+                            && p.x + dx < width
                             && walkability[(p.x + dx) as usize][p.z as usize];
-                        let card_z_ok = p.z + dz >= 0 && p.z + dz < height
+                        let card_z_ok = p.z + dz >= 0
+                            && p.z + dz < height
                             && walkability[p.x as usize][(p.z + dz) as usize];
-                        if !card_x_ok || !card_z_ok { continue; }
+                        if !card_x_ok || !card_z_ok {
+                            continue;
+                        }
                     }
 
                     let cost = if is_diagonal { 14 } else { 10 };
@@ -242,7 +301,9 @@ fn smooth_path(
     height: i32,
     walkability: &[Vec<bool>],
 ) -> Vec<Vec3> {
-    if path.len() <= 2 { return path.to_vec(); }
+    if path.len() <= 2 {
+        return path.to_vec();
+    }
 
     let mut smooth = vec![path[0]];
     let mut anchor = 0;

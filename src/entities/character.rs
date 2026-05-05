@@ -93,13 +93,17 @@ impl LayerCatalog {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().map(|e| e == "png").unwrap_or(false) {
-                    let name = path.file_stem()
+                    let name = path
+                        .file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .to_string();
                     // Use forward slashes for macroquad compatibility
                     let rel_path = path.to_string_lossy().replace('\\', "/");
-                    results.push(LayerOption { name, path: rel_path });
+                    results.push(LayerOption {
+                        name,
+                        path: rel_path,
+                    });
                 }
             }
         }
@@ -122,12 +126,16 @@ impl LayerCatalog {
                 if path.is_dir() {
                     Self::scan_recursive_inner(&path.to_string_lossy(), results);
                 } else if path.extension().map(|e| e == "png").unwrap_or(false) {
-                    let name = path.file_stem()
+                    let name = path
+                        .file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .to_string();
                     let rel_path = path.to_string_lossy().replace('\\', "/");
-                    results.push(LayerOption { name, path: rel_path });
+                    results.push(LayerOption {
+                        name,
+                        path: rel_path,
+                    });
                 }
             }
         }
@@ -207,7 +215,11 @@ impl CharacterTextures {
         let mut layers = Vec::new();
 
         // Helper: try to find and load a texture by name from a category
-        async fn try_load(catalog: &LayerCatalog, category: LayerCategory, name: &Option<String>) -> Option<Texture2D> {
+        async fn try_load(
+            catalog: &LayerCatalog,
+            category: LayerCategory,
+            name: &Option<String>,
+        ) -> Option<Texture2D> {
             if let Some(n) = name {
                 if let Some(path) = catalog.find_path(category, n) {
                     if let Ok(tex) = load_texture(&path).await {
@@ -228,15 +240,34 @@ impl CharacterTextures {
         }
 
         // Layers 1-7 in draw order
-        if let Some(t) = try_load(catalog, LayerCategory::Shoes, &appearance.shoes).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Clothes, &appearance.clothes).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Gloves, &appearance.gloves).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::EyeColor, &appearance.eye_color).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Eyelashes, &appearance.eyelashes).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Hairstyle, &appearance.hairstyle).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::FacialHair, &appearance.facial_hair).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Addon, &appearance.addon).await { layers.push(t); }
-        if let Some(t) = try_load(catalog, LayerCategory::Headgear, &appearance.headgear).await { layers.push(t); }
+        if let Some(t) = try_load(catalog, LayerCategory::Shoes, &appearance.shoes).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Clothes, &appearance.clothes).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Gloves, &appearance.gloves).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::EyeColor, &appearance.eye_color).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Eyelashes, &appearance.eyelashes).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Hairstyle, &appearance.hairstyle).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::FacialHair, &appearance.facial_hair).await
+        {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Addon, &appearance.addon).await {
+            layers.push(t);
+        }
+        if let Some(t) = try_load(catalog, LayerCategory::Headgear, &appearance.headgear).await {
+            layers.push(t);
+        }
 
         Self { layers }
     }

@@ -80,8 +80,8 @@ pub struct PlayerState {
     pub z: f32,
     pub target_x: f32,
     pub target_z: f32,
-    pub direction: u8,       // 0-7 matching Direction enum
-    pub anim_state: u8,      // Matches AnimationState enum
+    pub direction: u8,  // 0-7 matching Direction enum
+    pub anim_state: u8, // Matches AnimationState enum
     pub anim_frame: f32,
     pub casting_timer: f32,
 }
@@ -139,27 +139,31 @@ pub fn encode_server_message(msg: &ServerMessage) -> Vec<u8> {
 
 /// Decode a raw packet. Returns None if invalid.
 pub fn decode_packet(data: &[u8]) -> Option<PacketPayload> {
-    if data.len() < 8 { return None; } // Magic(4) + Version(1) + Type(1) + Len(2)
-    if &data[0..4] != &PROTOCOL_MAGIC { return None; }
-    if data[4] != PROTOCOL_VERSION { return None; }
+    if data.len() < 8 {
+        return None;
+    } // Magic(4) + Version(1) + Type(1) + Len(2)
+    if &data[0..4] != &PROTOCOL_MAGIC {
+        return None;
+    }
+    if data[4] != PROTOCOL_VERSION {
+        return None;
+    }
 
     let msg_type = data[5];
     let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
 
-    if data.len() < 8 + payload_len { return None; }
+    if data.len() < 8 + payload_len {
+        return None;
+    }
     let payload = &data[8..8 + payload_len];
 
     match msg_type {
-        0x01 => {
-            bincode::deserialize::<ClientMessage>(payload)
-                .ok()
-                .map(PacketPayload::Client)
-        }
-        0x02 => {
-            bincode::deserialize::<ServerMessage>(payload)
-                .ok()
-                .map(PacketPayload::Server)
-        }
+        0x01 => bincode::deserialize::<ClientMessage>(payload)
+            .ok()
+            .map(PacketPayload::Client),
+        0x02 => bincode::deserialize::<ServerMessage>(payload)
+            .ok()
+            .map(PacketPayload::Server),
         _ => None,
     }
 }

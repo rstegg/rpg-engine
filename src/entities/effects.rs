@@ -1,5 +1,6 @@
-use macroquad::prelude::*;
+use crate::core::animation::with_billboard_material;
 use crate::entities::player::SpellId;
+use macroquad::prelude::*;
 
 pub struct Particle {
     pub pos: Vec3,
@@ -8,7 +9,7 @@ pub struct Particle {
     pub timer: f32,
     pub rotation: f32, // For 45 degree tilt
     pub size: f32,     // Base height of the billboard
-    
+
     pub columns: u32,
     pub current_frame: f32,
     pub fps: f32,
@@ -21,7 +22,9 @@ pub struct EffectManager {
 
 impl EffectManager {
     pub fn new() -> Self {
-        Self { particles: Vec::new() }
+        Self {
+            particles: Vec::new(),
+        }
     }
     pub fn spawn_arrow_rain(&mut self, target_pos: Vec3, texture: Texture2D) {
         // Spawn 12-16 arrows high up, falling diagonally
@@ -30,10 +33,10 @@ impl EffectManager {
             let height = macroquad::rand::gen_range(5.0, 10.0);
             let fall_time = height / 15.0; // Time it takes to hit the ground at Y-velocity 15
             let spawn_x = -15.0 * fall_time; // Offset X so it lands near the target
-            
+
             let offset_x = macroquad::rand::gen_range(-2.0, 2.0);
             let offset_z = macroquad::rand::gen_range(-2.0, 2.0);
-            
+
             let mut tex = texture.clone();
             tex.set_filter(FilterMode::Nearest); // Fix blurriness
 
@@ -43,7 +46,7 @@ impl EffectManager {
                 texture: tex,
                 timer: 1.0, // Lives for up to 1 second
                 rotation: std::f32::consts::PI / 4.0 + std::f32::consts::PI, // Flipped 180 degrees
-                size: 1.2, // Smaller, less chunky arrows
+                size: 1.2,  // Smaller, less chunky arrows
                 columns: 6,
                 current_frame: 0.0,
                 fps: 15.0, // Arrow loop speed
@@ -99,8 +102,12 @@ impl EffectManager {
         let tex_w = p.texture.width();
         let tex_h = p.texture.height();
         let frame_w_pixels = tex_w / p.columns as f32;
-        let aspect_ratio = if tex_h > 0.0 { frame_w_pixels / tex_h } else { 1.0 };
-        
+        let aspect_ratio = if tex_h > 0.0 {
+            frame_w_pixels / tex_h
+        } else {
+            1.0
+        };
+
         let size = vec2(p.size * aspect_ratio, p.size);
         let half_w = size.x / 2.0;
         let half_h = size.y / 2.0;
@@ -114,9 +121,9 @@ impl EffectManager {
 
         let center = p.pos + vec3(0.0, half_h * 0.5, 0.0);
         let p1 = center + rot.transform_point3(vec3(-half_w, -half_h, 0.0));
-        let p2 = center + rot.transform_point3(vec3( half_w, -half_h, 0.0));
-        let p3 = center + rot.transform_point3(vec3( half_w,  half_h, 0.0));
-        let p4 = center + rot.transform_point3(vec3(-half_w,  half_h, 0.0));
+        let p2 = center + rot.transform_point3(vec3(half_w, -half_h, 0.0));
+        let p3 = center + rot.transform_point3(vec3(half_w, half_h, 0.0));
+        let p4 = center + rot.transform_point3(vec3(-half_w, half_h, 0.0));
 
         // UV Mapping for spritesheet
         let frame_idx = if p.looping {
@@ -144,8 +151,8 @@ impl EffectManager {
             indices,
             texture: Some(p.texture.clone()),
         };
-        
-        draw_mesh(&mesh);
+
+        with_billboard_material(|| draw_mesh(&mesh));
     }
 
     pub fn draw(&self, camera_pos: Vec3) {
