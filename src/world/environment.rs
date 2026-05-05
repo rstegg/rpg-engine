@@ -279,8 +279,8 @@ fn block_painted_mask(
             cell_z as f32 * grid_size / mask.reference_scale,
         ) * scale;
         let rotated_center = vec2(
-            local_center.x * cos_r - local_center.y * sin_r,
-            local_center.x * sin_r + local_center.y * cos_r,
+            local_center.x * cos_r + local_center.y * sin_r,
+            -local_center.x * sin_r + local_center.y * cos_r,
         );
         let cell_center = vec2(
             world_pos.x + rotated_center.x,
@@ -295,8 +295,8 @@ fn block_painted_mask(
         ]
         .map(|corner| {
             vec2(
-                cell_center.x + corner.x * cos_r - corner.y * sin_r,
-                cell_center.y + corner.x * sin_r + corner.y * cos_r,
+                cell_center.x + corner.x * cos_r + corner.y * sin_r,
+                cell_center.y - corner.x * sin_r + corner.y * cos_r,
             )
         });
 
@@ -328,8 +328,8 @@ fn block_painted_mask(
                 );
                 let delta = point - cell_center;
                 let local_point = vec2(
-                    delta.x * inv_cos - delta.y * inv_sin,
-                    delta.x * inv_sin + delta.y * inv_cos,
+                    delta.x * inv_cos + delta.y * inv_sin,
+                    -delta.x * inv_sin + delta.y * inv_cos,
                 );
 
                 if local_point.x.abs() <= world_half_extent + 0.001
