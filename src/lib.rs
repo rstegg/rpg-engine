@@ -2,3 +2,4 @@
 // This exposes modules that both the client and server binaries need.
 
 pub mod net;
+pub mod world;

@@ -12,7 +12,8 @@ pub fn handle_input(
     hero: &mut Hero,
     camera: &GameCamera,
     effect_manager: &mut EffectManager,
-    dummies: &[Vec3],
+    enemies: &mut Vec<crate::entities::enemy::Enemy>,
+    combat_text_mgr: &mut crate::ui::combat_text::CombatTextManager,
     assets: &Assets,
     env: &WorldEnvironment,
     indicators: &mut IndicatorManager,
@@ -36,16 +37,32 @@ pub fn handle_input(
     // Left click: Confirm Cast
     if is_mouse_button_pressed(MouseButton::Left) {
         match hero.targeting_state {
-            TargetingState::Aoe(spell, _radius) => {
+            TargetingState::Aoe(spell, radius) => {
+                let cd = hero.cooldowns.get(&spell).copied().unwrap_or(0.0);
+                if cd > 0.0 {
+                    hero.targeting_state = TargetingState::None;
+                    return None; // Cooldown not ready
+                }
+
                 if let Some(intersection) = camera.get_mouse_ray_intersection() {
                     hero.target_pos = hero.pos;
                     hero.current_path.clear();
                     hero.anim.set_direction(intersection - hero.pos);
-                    hero.casting_timer = 0.5;
+                    hero.casting_timer = 0.5 / hero.stats.get_cast_speed();
 
                     if spell == SpellId::Q {
+                        hero.cooldowns.insert(SpellId::Q, 3.0);
                         hero.anim.set_state(AnimationState::Bow);
                         effect_manager.spawn_arrow_rain(intersection, assets.spell_q.clone());
+                        
+                        // Deal damage to enemies in AoE
+                        for enemy in enemies.iter_mut() {
+                            if (enemy.pos - intersection).length() <= radius {
+                                let dmg = hero.stats.strength * 2;
+                                enemy.take_damage(dmg);
+                                combat_text_mgr.spawn(enemy.pos, dmg, false, WHITE);
+                            }
+                        }
                     }
                     cast_event = Some(SpellCastEvent {
                         spell,
@@ -56,46 +73,73 @@ pub fn handle_input(
                 }
             }
             TargetingState::UnitTarget(spell) => {
+                let cd = hero.cooldowns.get(&spell).copied().unwrap_or(0.0);
+                if cd > 0.0 {
+                    hero.targeting_state = TargetingState::None;
+                    return None; // Cooldown not ready
+                }
+
                 if let Some(intersection) = camera.get_mouse_ray_intersection() {
                     let mut target_idx = None;
-                    for (i, d_pos) in dummies.iter().enumerate() {
-                        if (intersection - *d_pos).length() < 2.5 {
+                    let mut min_dist = 2.5; // Only target units within this radius
+                    for (i, enemy) in enemies.iter().enumerate() {
+                        if enemy.state == crate::entities::enemy::EnemyState::Dead {
+                            continue;
+                        }
+                        let dist = (intersection - enemy.pos).length();
+                        if dist < min_dist {
+                            min_dist = dist;
                             target_idx = Some(i);
-                            break;
                         }
                     }
 
                     if let Some(idx) = target_idx {
-                        let target_pos = dummies[idx];
+                        let target_pos = enemies[idx].pos;
+                        let target_id = enemies[idx].id;
                         hero.target_pos = hero.pos;
                         hero.current_path.clear();
                         hero.anim.set_direction(target_pos - hero.pos);
-                        hero.casting_timer = 0.5;
+                        hero.casting_timer = 0.5 / hero.stats.get_cast_speed();
 
                         match spell {
                             SpellId::W => {
+                                hero.cooldowns.insert(SpellId::W, 1.0);
                                 hero.anim.set_state(AnimationState::Sword);
                                 effect_manager.spawn_single_hit(
                                     target_pos,
                                     assets.spell_w.clone(),
                                     SpellId::W,
+                                    Some(target_id),
                                 );
+                                let dmg = hero.stats.strength * 3;
+                                enemies[idx].take_damage(dmg);
+                                combat_text_mgr.spawn(enemies[idx].pos, dmg, false, WHITE);
                             }
                             SpellId::E => {
+                                hero.cooldowns.insert(SpellId::E, 2.0);
                                 hero.anim.set_state(AnimationState::Staff);
                                 effect_manager.spawn_single_hit(
                                     target_pos,
                                     assets.spell_e.clone(),
                                     SpellId::E,
+                                    Some(target_id),
                                 );
+                                let dmg = hero.stats.intelligence * 2;
+                                enemies[idx].take_damage(dmg);
+                                combat_text_mgr.spawn(enemies[idx].pos, dmg, false, WHITE);
                             }
                             SpellId::R => {
+                                hero.cooldowns.insert(SpellId::R, 5.0);
                                 hero.anim.set_state(AnimationState::CarryIdle);
                                 effect_manager.spawn_single_hit(
                                     target_pos,
                                     assets.spell_r.clone(),
                                     SpellId::R,
+                                    Some(target_id),
                                 );
+                                let dmg = hero.stats.intelligence * 4;
+                                enemies[idx].take_damage(dmg);
+                                combat_text_mgr.spawn(enemies[idx].pos, dmg, true, YELLOW);
                             }
                             _ => {}
                         }
@@ -124,10 +168,10 @@ pub fn handle_input(
                 if line_of_sight(
                     hero.pos,
                     goal,
-                    env.grid_size,
-                    env.width,
-                    env.height,
-                    &env.pathfinding_grid,
+                    env.sim.grid_size,
+                    env.sim.width,
+                    env.sim.height,
+                    &env.sim.pathfinding_grid,
                 ) {
                     hero.target_pos = goal;
                     hero.current_path.clear();
@@ -136,10 +180,10 @@ pub fn handle_input(
                     if let Some(path) = find_path(
                         hero.pos,
                         goal,
-                        env.grid_size,
-                        env.width,
-                        env.height,
-                        &env.pathfinding_grid,
+                        env.sim.grid_size,
+                        env.sim.width,
+                        env.sim.height,
+                        &env.sim.pathfinding_grid,
                     ) {
                         hero.current_path = path;
                         if let Some(first) = hero.current_path.first() {

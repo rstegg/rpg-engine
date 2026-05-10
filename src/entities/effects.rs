@@ -14,6 +14,7 @@ pub struct Particle {
     pub current_frame: f32,
     pub fps: f32,
     pub looping: bool,
+    pub target_id: Option<u64>,
 }
 
 pub struct EffectManager {
@@ -37,7 +38,7 @@ impl EffectManager {
             let offset_x = macroquad::rand::gen_range(-2.0, 2.0);
             let offset_z = macroquad::rand::gen_range(-2.0, 2.0);
 
-            let mut tex = texture.clone();
+            let tex = texture.clone();
             tex.set_filter(FilterMode::Nearest); // Fix blurriness
 
             self.particles.push(Particle {
@@ -51,11 +52,12 @@ impl EffectManager {
                 current_frame: 0.0,
                 fps: 15.0, // Arrow loop speed
                 looping: true,
+                target_id: None,
             });
         }
     }
 
-    pub fn spawn_single_hit(&mut self, target_pos: Vec3, texture: Texture2D, spell: SpellId) {
+    pub fn spawn_single_hit(&mut self, target_pos: Vec3, texture: Texture2D, spell: SpellId, target_id: Option<u64>) {
         // Retrieve spritesheet configuration based on the spell
         let (columns, fps) = match spell {
             SpellId::W => (5, 8.0),   // Updated to 5 columns per user's spritesheet
@@ -64,7 +66,7 @@ impl EffectManager {
             _ => (1, 1.0),
         };
 
-        let mut tex = texture.clone();
+        let tex = texture.clone();
         tex.set_filter(FilterMode::Nearest);
 
         // Spawn a static hit effect at the target position
@@ -79,11 +81,17 @@ impl EffectManager {
             current_frame: 0.0,
             fps,
             looping: false,
+            target_id,
         });
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f32, enemies: &[crate::entities::enemy::Enemy]) {
         for p in &mut self.particles {
+            if let Some(tid) = p.target_id {
+                if let Some(enemy) = enemies.iter().find(|e| e.id == tid) {
+                    p.pos = enemy.pos + vec3(0.0, 0.5, 0.0);
+                }
+            }
             p.pos += p.velocity * dt;
             p.timer -= dt;
             p.current_frame += p.fps * dt;
@@ -97,7 +105,7 @@ impl EffectManager {
         });
     }
 
-    pub fn draw_particle(&self, p: &Particle, camera_pos: Vec3) {
+    pub fn draw_particle(&self, p: &Particle, _camera_pos: Vec3) {
         // Calculate aspect ratio so the frame isn't squashed or cut off
         let tex_w = p.texture.width();
         let tex_h = p.texture.height();

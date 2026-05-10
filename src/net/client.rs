@@ -12,12 +12,15 @@ pub struct NetClient {
     pub ping_ms: f64,
     last_ping_time: Instant,
     pending_ping: Option<f64>,
+    pub pending_map: Option<Vec<ModelPlacementNet>>,
+    pub latest_msg: Option<ServerMessage>,
 }
 
 /// A decoded world state from the server.
 pub struct WorldSnapshot {
     pub tick: u64,
     pub players: Vec<PlayerState>,
+    pub enemies: Vec<EnemyStateNet>,
     pub effects: Vec<EffectState>,
 }
 
@@ -37,7 +40,7 @@ impl NetClient {
             .set_nonblocking(true)
             .map_err(|e| format!("Failed to set nonblocking: {}", e))?;
 
-        let mut client = Self {
+        let client = Self {
             socket,
             my_id: None,
             connected: false,
@@ -46,6 +49,8 @@ impl NetClient {
             ping_ms: 0.0,
             last_ping_time: Instant::now(),
             pending_ping: None,
+            pending_map: None,
+            latest_msg: None,
         };
 
         // Send join request
@@ -67,6 +72,7 @@ impl NetClient {
 
     /// Poll for incoming server messages. Call this every frame.
     pub fn update(&mut self) {
+        self.latest_msg = None;
         let mut buf = [0u8; 4096];
 
         // Read all pending packets
@@ -95,6 +101,7 @@ impl NetClient {
     }
 
     fn handle_server_message(&mut self, msg: ServerMessage) {
+        self.latest_msg = Some(msg.clone());
         match msg {
             ServerMessage::JoinAccepted { your_id } => {
                 self.my_id = Some(your_id);
@@ -104,6 +111,10 @@ impl NetClient {
             ServerMessage::JoinRejected { reason } => {
                 eprintln!("[NET] Join rejected: {}", reason);
                 self.connected = false;
+            }
+            ServerMessage::MapData { placements } => {
+                println!("[NET] Received MapData with {} placements", placements.len());
+                self.pending_map = Some(placements);
             }
             ServerMessage::PlayerJoined {
                 id,
@@ -121,11 +132,13 @@ impl NetClient {
                 tick,
                 server_time: _,
                 players,
+                enemies,
                 effects,
             } => {
                 self.latest_world = Some(WorldSnapshot {
                     tick,
                     players,
+                    enemies,
                     effects,
                 });
             }
@@ -143,6 +156,9 @@ impl NetClient {
                         self.pending_ping = None;
                     }
                 }
+            }
+            ServerMessage::GameOver => {
+                // GameState is updated in main.rs loop by checking latest_msg
             }
         }
     }

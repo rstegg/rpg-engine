@@ -34,14 +34,30 @@ impl Stats {
     pub fn get_movement_speed(&self) -> f32 {
         3.0 + (self.agility as f32 * 0.15)
     }
+
+    pub fn get_cast_speed(&self) -> f32 {
+        // e.g. 10 agility = 1.5x cast speed
+        1.0 + (self.agility as f32 * 0.05)
+    }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SpellId {
     Q,
     W,
     E,
     R,
+}
+
+impl SpellId {
+    pub fn get_max_cooldown(&self) -> f32 {
+        match self {
+            SpellId::Q => 3.0,
+            SpellId::W => 1.0,
+            SpellId::E => 2.0,
+            SpellId::R => 5.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -60,4 +76,7 @@ pub struct Hero {
     pub targeting_state: TargetingState,
     pub casting_timer: f32, // Locks movement/animation while > 0
     pub stuck_timer: f32,   // Tracks how long we've been running into a wall
+    pub cooldowns: std::collections::HashMap<SpellId, f32>,
+    pub is_dead: bool,
+    pub revive_progress: f32,
 }

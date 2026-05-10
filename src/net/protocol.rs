@@ -47,8 +47,10 @@ pub enum ClientMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerMessage {
-    /// Welcome! Here is your assigned player ID.
+    /// Welcome! Here is your assigned player ID and the world map data.
     JoinAccepted { your_id: PlayerId },
+    /// The map data (placements).
+    MapData { placements: Vec<ModelPlacementNet> },
     /// Server is full or version mismatch.
     JoinRejected { reason: String },
     /// A new player has joined.
@@ -64,10 +66,13 @@ pub enum ServerMessage {
         tick: u64,
         server_time: f64,
         players: Vec<PlayerState>,
+        enemies: Vec<EnemyStateNet>,
         effects: Vec<EffectState>,
     },
     /// Response to client Ping.
     Pong { client_time: f64, server_time: f64 },
+    /// Everyone is dead.
+    GameOver,
 }
 
 // ─── Shared Data Structures ───
@@ -84,6 +89,12 @@ pub struct PlayerState {
     pub anim_state: u8, // Matches AnimationState enum
     pub anim_frame: f32,
     pub casting_timer: f32,
+    pub current_hp: i32,
+    pub max_hp: i32,
+    pub current_mp: i32,
+    pub max_mp: i32,
+    pub is_dead: bool,
+    pub revive_progress: f32, // 0.0 to 1.0
 }
 
 /// Compact spell effect for network transmission.
@@ -95,6 +106,31 @@ pub struct EffectState {
     pub z: f32,
     pub timer: f32,
     pub caster_id: PlayerId,
+}
+
+/// Compact enemy state for network transmission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnemyStateNet {
+    pub id: u64,
+    pub race_idx: usize,
+    pub x: f32,
+    pub z: f32,
+    pub target_x: f32,
+    pub target_z: f32,
+    pub direction: u8,
+    pub anim_state: u8,
+    pub health: i32,
+    pub max_health: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPlacementNet {
+    pub model: String,
+    pub file: String,
+    pub position: [f32; 3],
+    pub rotation: f32,
+    pub scale: f32,
+    pub blocks_movement: bool,
 }
 
 /// Network-friendly character appearance (mirrors CharacterAppearance but lightweight).

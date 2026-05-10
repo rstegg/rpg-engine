@@ -134,6 +134,7 @@ pub enum AnimationState {
     Jump,
 }
 
+#[derive(Clone, Copy)]
 pub struct SpriteSheetConfig {
     pub columns: u32,
     pub rows: u32,
@@ -187,7 +188,7 @@ impl AnimationManager {
         }
     }
 
-    pub fn update(&mut self, dt: f32, move_speed: f32) {
+    pub fn update(&mut self, dt: f32, move_speed: f32, action_speed: f32) {
         let frames = self.get_frame_indices();
         let frame_count = frames.len() as f32;
 
@@ -195,7 +196,7 @@ impl AnimationManager {
         let anim_fps = match self.state {
             AnimationState::Idle | AnimationState::CarryIdle => 2.0, // Slower idle
             AnimationState::Walk | AnimationState::CarryWalk => 4.0 + (move_speed * 1.5), // Scales with movement speed
-            _ => 8.0, // Fixed faster speed for attacks/actions
+            _ => 8.0 * action_speed, // Scales with action/cast speed
         };
 
         self.current_frame += dt * anim_fps;
@@ -235,21 +236,14 @@ impl AnimationManager {
 // 5. TECHNICAL RENDERING HELPER
 // Renders the character as a billboard that faces the camera.
 // Renders the character as a billboard that faces the camera.
-pub fn draw_character_billboard(
-    pos: Vec3,
-    texture: &Texture2D,
-    source_rect: Rect,
-    camera_pos: Vec3,
-) {
-    draw_character_billboard_ex(pos, texture, source_rect, camera_pos, 2.0);
-}
 
 pub fn draw_character_billboard_ex(
     pos: Vec3,
     texture: &Texture2D,
     source_rect: Rect,
-    camera_pos: Vec3,
+    _camera_pos: Vec3,
     base_size: f32,
+    color: Color,
 ) {
     // Respect aspect ratio of the sprite frame to prevent squishing
     let aspect_ratio = source_rect.w / source_rect.h;
@@ -278,10 +272,10 @@ pub fn draw_character_billboard_ex(
     let v_max = (source_rect.y + source_rect.h) / tex_h;
 
     let vertices = vec![
-        macroquad::models::Vertex::new2(p1, vec2(u_min, v_max), WHITE),
-        macroquad::models::Vertex::new2(p2, vec2(u_max, v_max), WHITE),
-        macroquad::models::Vertex::new2(p3, vec2(u_max, v_min), WHITE),
-        macroquad::models::Vertex::new2(p4, vec2(u_min, v_min), WHITE),
+        macroquad::models::Vertex::new2(p1, vec2(u_min, v_max), color),
+        macroquad::models::Vertex::new2(p2, vec2(u_max, v_max), color),
+        macroquad::models::Vertex::new2(p3, vec2(u_max, v_min), color),
+        macroquad::models::Vertex::new2(p4, vec2(u_min, v_min), color),
     ];
     let indices = vec![0, 1, 2, 0, 2, 3];
 

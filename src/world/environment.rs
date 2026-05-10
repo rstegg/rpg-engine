@@ -67,6 +67,15 @@ pub struct GltfTemplate {
 
 pub async fn load_glb_template(path: &str) -> Option<GltfTemplate> {
     let bytes = load_file(path).await.ok()?;
+    parse_glb_template(&bytes)
+}
+
+pub fn load_glb_template_sync(path: &str) -> Option<GltfTemplate> {
+    let bytes = std::fs::read(path).ok()?;
+    parse_glb_template(&bytes)
+}
+
+pub fn parse_glb_template(bytes: &[u8]) -> Option<GltfTemplate> {
     let gltf = Gltf::from_slice(&bytes).ok()?;
     let blob = gltf.blob.as_deref()?;
 
@@ -367,36 +376,24 @@ fn apply_hitbox_blocking(
     );
 }
 
-pub struct WorldEnvironment {
-    pub meshes: Vec<Mesh>,
+pub struct WorldSimulation {
     pub templates: HashMap<String, GltfTemplate>,
     pub grid_size: f32,
     pub width: i32,
     pub height: i32,
     pub walkability_grid: Vec<Vec<bool>>,
-    /// A "fattened" version of the walkability grid used for A* to keep the agent away from walls.
     pub pathfinding_grid: Vec<Vec<bool>>,
     pub placements: Vec<ModelPlacement>,
 }
 
-impl WorldEnvironment {
-    pub async fn new(
+impl WorldSimulation {
+    pub fn build(
         tile_width: i32,
         tile_height: i32,
         hitbox_config: HitboxConfig,
         procedural: bool,
+        templates: HashMap<String, GltfTemplate>,
     ) -> Self {
-        let base = "assets/world_models/";
-        let to_load = builtin_template_defs();
-
-        let mut templates = HashMap::new();
-        for &(k, f) in &to_load {
-            if let Some(t) = load_glb_template(&format!("{base}{f}")).await {
-                templates.insert(k.to_string(), t);
-            }
-        }
-
-        let mut meshes: Vec<Mesh> = Vec::new();
         let tile_size = 2.0_f32;
         let grid_size = 0.5_f32; // Higher resolution for hitboxes
 
@@ -427,8 +424,7 @@ impl WorldEnvironment {
                     } else {
                         rng.gen_range(0..4) as f32 * 1.5708
                     };
-                    if let Some(t) = templates.get(key) {
-                        meshes.extend(instantiate(t, vec3(wx, 0.0, wz), rot, tile_size));
+                    if let Some(_t) = templates.get(key) {
                         placements.push(ModelPlacement {
                             model: key.to_string(),
                             file: format!("ground_{}.glb", key),
@@ -500,7 +496,6 @@ impl WorldEnvironment {
                                 vec3(rng.gen_range(-0.4..0.4), 0.0, rng.gen_range(-0.4..0.4));
                             let c_rot = rng.gen_range(0.0..6.28);
                             let c_scale = base_scale * rng.gen_range(0.8..1.2);
-                            meshes.extend(instantiate(t, pos + offset, c_rot, c_scale));
                             placements.push(ModelPlacement {
                                 model: key.to_string(),
                                 file: format!("{}.glb", key),
@@ -511,7 +506,6 @@ impl WorldEnvironment {
                             });
                         }
                     } else {
-                        meshes.extend(instantiate(t, pos, rot, base_scale));
                         placements.push(ModelPlacement {
                             model: key.to_string(),
                             file: format!("{}.glb", key),
@@ -546,7 +540,6 @@ impl WorldEnvironment {
                 let pos = vec3(wx, 0.0, wz);
                 let scale = 3.0; // Scaled down from mountain size
                 let rot = rng.gen_range(0.0..6.28);
-                meshes.extend(instantiate(t, pos, rot, scale));
                 placements.push(ModelPlacement {
                     model: "rock_b".to_string(),
                     file: "rock_tallA.glb".to_string(),
@@ -574,7 +567,6 @@ impl WorldEnvironment {
             let tent_pos = vec3(6.0, 0.0, 4.0);
             let fire_pos = vec3(4.0, 0.0, 4.0);
             if let Some(t) = templates.get("tent") {
-                meshes.extend(instantiate(t, tent_pos, -0.7, 2.5));
                 placements.push(ModelPlacement {
                     model: "tent".to_string(),
                     file: "tent_detailedOpen.glb".to_string(),
@@ -597,7 +589,6 @@ impl WorldEnvironment {
                 );
             }
             if let Some(t) = templates.get("campfire") {
-                meshes.extend(instantiate(t, fire_pos, 0.0, 2.0));
                 placements.push(ModelPlacement {
                     model: "campfire".to_string(),
                     file: "campfire_bricks.glb".to_string(),
@@ -641,7 +632,6 @@ impl WorldEnvironment {
         }
 
         Self {
-            meshes,
             templates,
             grid_size,
             width: grid_width,
@@ -652,22 +642,9 @@ impl WorldEnvironment {
         }
     }
 
-    pub fn draw(&self) {
-        for mesh in &self.meshes {
-            draw_mesh(mesh);
-        }
-    }
-
     pub fn add_placement(&mut self, placement: &ModelPlacement, hitbox_config: &HitboxConfig) {
         if let Some(template) = self.templates.get(&placement.model) {
             let pos = placement.pos_vec3();
-            self.meshes.extend(instantiate(
-                template,
-                pos,
-                placement.rotation,
-                placement.scale,
-            ));
-
             if placement.blocks_movement {
                 apply_hitbox_blocking(
                     &mut self.walkability_grid,
@@ -714,5 +691,63 @@ impl WorldEnvironment {
             return false;
         }
         self.walkability_grid[x as usize][z as usize]
+    }
+}
+
+pub struct WorldEnvironment {
+    pub sim: WorldSimulation,
+    pub meshes: Vec<Mesh>,
+}
+
+impl WorldEnvironment {
+    pub async fn new(
+        tile_width: i32,
+        tile_height: i32,
+        hitbox_config: HitboxConfig,
+        procedural: bool,
+    ) -> Self {
+        let base = "assets/world_models/";
+        let to_load = builtin_template_defs();
+
+        let mut templates = HashMap::new();
+        for &(k, f) in &to_load {
+            if let Some(t) = load_glb_template(&format!("{base}{f}")).await {
+                templates.insert(k.to_string(), t);
+            }
+        }
+
+        let sim = WorldSimulation::build(tile_width, tile_height, hitbox_config, procedural, templates);
+
+        let mut meshes = Vec::new();
+        for placement in &sim.placements {
+            if let Some(t) = sim.templates.get(&placement.model) {
+                meshes.extend(instantiate(
+                    t,
+                    placement.pos_vec3(),
+                    placement.rotation,
+                    placement.scale,
+                ));
+            }
+        }
+
+        Self { sim, meshes }
+    }
+
+    pub fn draw(&self) {
+        for mesh in &self.meshes {
+            draw_mesh(mesh);
+        }
+    }
+
+    pub fn add_placement(&mut self, placement: &ModelPlacement, hitbox_config: &HitboxConfig) {
+        self.sim.add_placement(placement, hitbox_config);
+        if let Some(template) = self.sim.templates.get(&placement.model) {
+            self.meshes.extend(instantiate(
+                template,
+                placement.pos_vec3(),
+                placement.rotation,
+                placement.scale,
+            ));
+        }
     }
 }

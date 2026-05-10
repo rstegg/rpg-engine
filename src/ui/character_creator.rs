@@ -211,7 +211,7 @@ impl CharacterCreator {
         // Preview is South/Idle by default
         self.preview_anim.state = AnimationState::Idle;
         self.preview_anim.direction = Direction::South;
-        self.preview_anim.update(dt, 1.0);
+        self.preview_anim.update(dt, 1.0, 1.0);
 
         // Draw each layer stacked
         let preview_size = (preview_w - 60.0).min(sh * 0.3); // Scale with panel, cap at 30% screen height

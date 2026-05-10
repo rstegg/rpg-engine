@@ -174,7 +174,12 @@ pub fn find_path(
     };
 
     let mut start_grid = to_grid(start);
+    start_grid.x = start_grid.x.clamp(0, width - 1);
+    start_grid.z = start_grid.z.clamp(0, height - 1);
+    
     let mut goal_grid = to_grid(goal);
+    goal_grid.x = goal_grid.x.clamp(0, width - 1);
+    goal_grid.z = goal_grid.z.clamp(0, height - 1);
 
     // Resilience: If start is blocked, find nearest walkable cell to start from
     if start_grid.x >= 0

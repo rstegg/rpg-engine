@@ -10,6 +10,7 @@ use core::camera::*;
 use entities::character::*;
 use entities::effects::*;
 use entities::player::*;
+use entities::enemy::*;
 use macroquad::prelude::*;
 use net::client::NetClient;
 use net::protocol::*;
@@ -43,6 +44,7 @@ enum GameState {
     Playing,
     HitboxCalibration,
     ClusterEditor,
+    GameOver,
 }
 
 async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
@@ -118,12 +120,12 @@ async fn rebuild_world_from_current_placements(
     world_env: &mut world::environment::WorldEnvironment,
     hitbox_config: &HitboxConfig,
 ) {
-    let placements = world_env.placements.clone();
+    let placements = world_env.sim.placements.clone();
     *world_env =
         world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
 
     for placement in placements {
-        if !world_env.templates.contains_key(&placement.model) {
+        if !world_env.sim.templates.contains_key(&placement.model) {
             if let Some(template) = world::environment::load_glb_template(&format!(
                 "assets/world_models/{}",
                 placement.file
@@ -131,6 +133,7 @@ async fn rebuild_world_from_current_placements(
             .await
             {
                 world_env
+                    .sim
                     .templates
                     .insert(placement.model.clone(), template);
             }
@@ -183,6 +186,9 @@ async fn main() {
         targeting_state: TargetingState::None,
         casting_timer: 0.0,
         stuck_timer: 0.0,
+        cooldowns: std::collections::HashMap::new(),
+        is_dead: false,
+        revive_progress: 0.0,
     };
 
     let mut hitbox_config: HitboxConfig = match std::fs::read_to_string("hitbox_config.json") {
@@ -200,12 +206,8 @@ async fn main() {
     let mut indicator_manager = IndicatorManager::new();
     let mut cluster_editor = ClusterEditor::new();
 
-    // Spawn some test dummies
-    let dummies = vec![
-        vec3(5.0, 0.0, 5.0),
-        vec3(-5.0, 0.0, 3.0),
-        vec3(2.0, 0.0, -6.0),
-    ];
+    let mut enemy_director = EnemyDirector::new(&catalog, config).await;
+    let mut combat_text_mgr = ui::combat_text::CombatTextManager::new();
 
     let mut game_state = GameState::CharacterCreation;
     let mut net_client: Option<NetClient> = None;
@@ -213,6 +215,8 @@ async fn main() {
     let mut remote_textures: std::collections::HashMap<u64, Vec<Texture2D>> =
         std::collections::HashMap::new();
     let mut remote_anims: std::collections::HashMap<u64, AnimationManager> =
+        std::collections::HashMap::new();
+    let mut remote_enemy_anims: std::collections::HashMap<u64, AnimationManager> =
         std::collections::HashMap::new();
     let mut spawned_effect_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
@@ -237,6 +241,7 @@ async fn main() {
 
         match game_state {
             GameState::CharacterCreation => {
+                show_mouse(true);
                 if creator.needs_reload {
                     creator.preview_textures =
                         CharacterTextures::from_appearance(&creator.appearance, &catalog)
@@ -248,7 +253,7 @@ async fn main() {
                 if confirmed {
                     char_textures =
                         CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
-                    game_state = GameState::Playing; // Skip connecting for now to test world
+                    game_state = GameState::Connecting;
                 }
             }
             GameState::HitboxCalibration => {
@@ -360,10 +365,10 @@ async fn main() {
                 }
                 let mut calibration_selection_changed = false;
                 let current_key = keys[calibration_selected_idx].clone();
-                if !world_env.templates.contains_key(&current_key) {
+                if !world_env.sim.templates.contains_key(&current_key) {
                     if let Some(path) = hitbox_models.get(&current_key) {
                         if let Some(template) = world::environment::load_glb_template(path).await {
-                            world_env.templates.insert(current_key.clone(), template);
+                            world_env.sim.templates.insert(current_key.clone(), template);
                         }
                     }
                 }
@@ -469,8 +474,8 @@ async fn main() {
 
                 draw_grid(10, 2.0, GRAY, DARKGRAY);
 
-                if let Some(t) = world_env.templates.get(&current_key) {
-                    let grid_size = world_env.grid_size;
+                if let Some(t) = world_env.sim.templates.get(&current_key) {
+                    let grid_size = world_env.sim.grid_size;
                     let mask = environment::ensure_painted_hitbox_entry(
                         &mut hitbox_config,
                         &current_key,
@@ -716,7 +721,7 @@ async fn main() {
                     server_addr.pop();
                 }
 
-                if is_key_pressed(KeyCode::Enter) {
+                if is_key_pressed(KeyCode::Enter) && net_client.is_none() {
                     let app = &creator.appearance;
                     let net_app = CharacterAppearanceNet {
                         skin: app.skin.clone(),
@@ -733,13 +738,45 @@ async fn main() {
                     match NetClient::connect(&server_addr, "Player", net_app) {
                         Ok(client) => {
                             net_client = Some(client);
-                            game_state = GameState::Playing;
                         }
                         Err(e) => {
                             eprintln!("Connection failed: {}", e);
                         }
                     }
                 }
+
+                if let Some(ref mut nc) = net_client {
+                    nc.update();
+                    draw_text("Waiting for world data...", sw / 2.0 - 100.0, sh / 2.0 + 60.0, 18.0, YELLOW);
+                    
+                    if nc.connected && nc.pending_map.is_some() {
+                        let placements = nc.pending_map.take().unwrap();
+                        println!("[CLIENT] Building world from server placements ({})...", placements.len());
+                        
+                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
+                        for p in placements {
+                            if !world_env.sim.templates.contains_key(&p.model) {
+                                if let Some(template) = world::environment::load_glb_template(&format!(
+                                    "assets/world_models/{}",
+                                    p.file
+                                )).await {
+                                    world_env.sim.templates.insert(p.model.clone(), template);
+                                }
+                            }
+                            let sim_p = world::cluster::ModelPlacement {
+                                model: p.model.clone(),
+                                file: p.file.clone(),
+                                position: p.position,
+                                rotation: p.rotation,
+                                scale: p.scale,
+                                blocks_movement: p.blocks_movement,
+                            };
+                            world_env.add_placement(&sim_p, &hitbox_config);
+                        }
+                        game_state = GameState::Playing;
+                    }
+                }
+
                 if is_key_pressed(KeyCode::Escape) {
                     game_state = GameState::Playing; // Offline mode
                 }
@@ -748,11 +785,11 @@ async fn main() {
                 let editor_action = cluster_editor.update();
 
                 if let Some(asset) = cluster_editor.selected_asset() {
-                    if !world_env.templates.contains_key(&asset.key) {
+                    if !world_env.sim.templates.contains_key(&asset.key) {
                         if let Some(template) =
                             world::environment::load_glb_template(&asset.path).await
                         {
-                            world_env.templates.insert(asset.key.clone(), template);
+                            world_env.sim.templates.insert(asset.key.clone(), template);
                         }
                     }
                 }
@@ -771,7 +808,7 @@ async fn main() {
                         )
                         .await;
                         cluster_editor.clear_map();
-                        cluster_editor.import_placements(&world_env.placements);
+                        cluster_editor.import_placements(&world_env.sim.placements);
                     }
                     EditorAction::ClearAll => {
                         cluster_editor.clear_map();
@@ -792,13 +829,14 @@ async fn main() {
                         )
                         .await;
                         for placement in cluster_editor.all_placements() {
-                            if !world_env.templates.contains_key(&placement.model) {
+                            if !world_env.sim.templates.contains_key(&placement.model) {
                                 if let Some(template) = world::environment::load_glb_template(
                                     &format!("assets/world_models/{}", placement.file),
                                 )
                                 .await
                                 {
                                     world_env
+                                        .sim
                                         .templates
                                         .insert(placement.model.clone(), template);
                                 }
@@ -815,12 +853,12 @@ async fn main() {
                 }
 
                 set_camera(cluster_editor.camera());
-                cluster_editor.draw_3d(&world_env.templates);
+                cluster_editor.draw_3d(&world_env.sim.templates);
 
                 set_default_camera();
                 let template_loaded = cluster_editor
                     .selected_asset()
-                    .map(|asset| world_env.templates.contains_key(&asset.key))
+                    .map(|asset| world_env.sim.templates.contains_key(&asset.key))
                     .unwrap_or(false);
                 cluster_editor.draw_ui(template_loaded);
             }
@@ -829,6 +867,17 @@ async fn main() {
                     creator.confirmed = false;
                     game_state = GameState::CharacterCreation;
                     continue;
+                }
+
+                if hero.is_dead {
+                    hero.anim.set_state(AnimationState::Death);
+                    hero.targeting_state = TargetingState::None;
+                }
+
+                for cd in hero.cooldowns.values_mut() {
+                    if *cd > 0.0 {
+                        *cd -= delta_time;
+                    }
                 }
 
                 // Network update
@@ -866,6 +915,13 @@ async fn main() {
                     remote_textures.retain(|id, _| client.remote_appearances.contains_key(id));
                     remote_anims.retain(|id, _| client.remote_appearances.contains_key(id));
 
+                    // Check for Game Over
+                    if let Some(msg) = &client.latest_msg {
+                        if let ServerMessage::GameOver = msg {
+                            game_state = GameState::GameOver;
+                        }
+                    }
+
                     // Apply server world state
                     if let Some(ref world) = client.latest_world {
                         if let Some(my_id) = client.my_id {
@@ -874,11 +930,21 @@ async fn main() {
                                     hero.pos = vec3(ps.x, 0.0, ps.z);
                                     hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
                                     hero.casting_timer = ps.casting_timer;
+                                    hero.pos = vec3(ps.x, 0.0, ps.z);
+                                    hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
+                                    hero.casting_timer = ps.casting_timer;
+                                    hero.stats.current_hp = ps.current_hp;
+                                    hero.stats.max_hp = ps.max_hp;
+                                    hero.stats.current_mp = ps.current_mp;
+                                    hero.stats.max_mp = ps.max_mp;
+                                    hero.is_dead = ps.is_dead;
+                                    hero.revive_progress = ps.revive_progress;
 
                                     // Sync local animation with server authority
                                     let server_state = match ps.anim_state {
                                         0 => AnimationState::Idle,
                                         1 => AnimationState::Walk,
+                                        2 => AnimationState::Death,
                                         3 => AnimationState::Sword,
                                         4 => AnimationState::Bow,
                                         5 => AnimationState::Staff,
@@ -905,6 +971,7 @@ async fn main() {
                                     let state = match ps.anim_state {
                                         0 => AnimationState::Idle,
                                         1 => AnimationState::Walk,
+                                        2 => AnimationState::Death,
                                         3 => AnimationState::Sword,
                                         4 => AnimationState::Bow,
                                         5 => AnimationState::Staff,
@@ -916,7 +983,7 @@ async fn main() {
                                         anim.direction =
                                             unsafe { std::mem::transmute(ps.direction) };
                                     }
-                                    anim.update(delta_time, 5.0);
+                                    anim.update(delta_time, 5.0, 1.0);
                                 }
                             }
                         }
@@ -956,22 +1023,32 @@ async fn main() {
                                         _ => assets.spell_w.clone(),
                                     },
                                     spell,
+                                    None,
                                 ),
                             }
                         }
+
+                        // Cleanup remote enemy anims for enemies no longer in the snapshot
+                        let current_enemy_ids: std::collections::HashSet<u64> = world.enemies.iter().map(|e| e.id).collect();
+                        remote_enemy_anims.retain(|id, _| current_enemy_ids.contains(id));
                     }
                 }
 
                 game_camera.update(hero.pos);
-                let cast_event = handle_input(
-                    &mut hero,
-                    &game_camera,
-                    &mut effect_manager,
-                    &dummies,
-                    &assets,
-                    &world_env,
-                    &mut indicator_manager,
-                );
+                let cast_event = if !hero.is_dead {
+                    handle_input(
+                        &mut hero,
+                        &game_camera,
+                        &mut effect_manager,
+                        &mut enemy_director.active_enemies,
+                        &mut combat_text_mgr,
+                        &assets,
+                        &world_env,
+                        &mut indicator_manager,
+                    )
+                } else {
+                    None
+                };
 
                 if is_key_pressed(KeyCode::F2) {
                     game_state = GameState::HitboxCalibration;
@@ -984,6 +1061,7 @@ async fn main() {
                 if let Some(ref client) = net_client {
                     if is_mouse_button_pressed(MouseButton::Right)
                         && hero.targeting_state == TargetingState::None
+                        && !hero.is_dead
                     {
                         if let Some(pos) = game_camera.get_mouse_ray_intersection() {
                             client.send(&ClientMessage::MoveTo { x: pos.x, z: pos.z });
@@ -1019,10 +1097,10 @@ async fn main() {
                                 hero.pos,
                                 desired,
                                 PLAYER_RADIUS,
-                                world_env.grid_size,
-                                world_env.width,
-                                world_env.height,
-                                &world_env.walkability_grid,
+                                world_env.sim.grid_size,
+                                world_env.sim.width,
+                                world_env.sim.height,
+                                &world_env.sim.walkability_grid,
                             );
                             if (new_pos - hero.pos).length() > 0.001 {
                                 hero.pos = new_pos;
@@ -1030,9 +1108,9 @@ async fn main() {
                                 // ── World Boundary Clamping ──
                                 let margin = PLAYER_RADIUS + 0.1;
                                 let hw =
-                                    (world_env.width as f32 * world_env.grid_size) / 2.0 - margin;
+                                    (world_env.sim.width as f32 * world_env.sim.grid_size) / 2.0 - margin;
                                 let hh =
-                                    (world_env.height as f32 * world_env.grid_size) / 2.0 - margin;
+                                    (world_env.sim.height as f32 * world_env.sim.grid_size) / 2.0 - margin;
                                 hero.pos.x = hero.pos.x.clamp(-hw, hw);
                                 hero.pos.z = hero.pos.z.clamp(-hh, hh);
 
@@ -1085,10 +1163,18 @@ async fn main() {
                     }
                 }
 
-                hero.anim
-                    .update(delta_time, hero.stats.get_movement_speed());
-                effect_manager.update(delta_time);
+                hero.anim.update(delta_time, hero.stats.get_movement_speed(), hero.stats.get_cast_speed());
+                effect_manager.update(delta_time, &enemy_director.active_enemies);
                 indicator_manager.update(delta_time);
+                
+                if net_client.is_none() {
+                    enemy_director.update(delta_time, &mut hero, &mut combat_text_mgr, &world_env);
+                    if hero.is_dead {
+                        game_state = GameState::GameOver;
+                    }
+                }
+                
+                combat_text_mgr.update(delta_time);
 
                 // Render
                 set_camera(&game_camera.camera);
@@ -1101,14 +1187,14 @@ async fn main() {
                 }
 
                 if debug_pathfinding {
-                    let gs = world_env.grid_size;
-                    let hw = world_env.width / 2;
-                    let hh = world_env.height / 2;
+                    let gs = world_env.sim.grid_size;
+                    let hw = world_env.sim.width / 2;
+                    let hh = world_env.sim.height / 2;
 
                     // Draw blocked grid cells in semi-transparent red
-                    for x in 0..world_env.width {
-                        for z in 0..world_env.height {
-                            if !world_env.walkability_grid[x as usize][z as usize] {
+                    for x in 0..world_env.sim.width {
+                        for z in 0..world_env.sim.height {
+                            if !world_env.sim.walkability_grid[x as usize][z as usize] {
                                 let wx = (x - hw) as f32 * gs;
                                 let wz = (z - hh) as f32 * gs;
                                 draw_cube(
@@ -1171,7 +1257,7 @@ async fn main() {
                 ogre_anim_timer += delta_time * 3.0;
                 let ogre_idle_frames = [0u32, 1u32];
                 let ogre_frame_idx = (ogre_anim_timer as usize % ogre_idle_frames.len()) as u32;
-                let ogre_col = ogre_idle_frames[ogre_frame_idx as usize];
+                let _ogre_col = ogre_idle_frames[ogre_frame_idx as usize];
 
                 // ─── Back-to-Front Sorting for EVERYTHING ───
                 // This handles Ogres, Hero, Players, and Particles in a single pass to fix all transparency issues
@@ -1189,29 +1275,83 @@ async fn main() {
                     pos: Vec3,
                     kind: DrawKind,
                     dist_sq: f32,
+                    color: Color,
                 }
                 let mut sort_list: Vec<SortItem> = Vec::new();
                 let cam_pos = game_camera.camera.position;
 
-                // Add Ogres
-                for d_pos in &dummies {
-                    let fw = assets.dummy.width() / 29.0;
-                    let fh = assets.dummy.height() / 8.0;
-                    let src = Rect::new(ogre_col as f32 * fw, 0.0, fw, fh);
-                    sort_list.push(SortItem {
-                        pos: *d_pos,
-                        kind: DrawKind::Billboard {
-                            tex: assets.dummy.clone(),
-                            src,
-                            size: 4.0,
-                        },
-                        dist_sq: (cam_pos - *d_pos).length_squared(),
-                    });
+                // Add Active Enemies
+                for enemy in &enemy_director.active_enemies {
+                    for tex in &enemy.textures {
+                        let src = enemy.anim.get_source_rect(tex.width(), tex.height());
+                        sort_list.push(SortItem {
+                            pos: enemy.pos,
+                            kind: DrawKind::Billboard {
+                                tex: tex.clone(),
+                                src,
+                                size: enemy.scale,
+                            },
+                            dist_sq: (cam_pos - enemy.pos).length_squared(),
+                            color: WHITE,
+                        });
+                    }
+                }
+
+                // Add Server Enemies
+                if let Some(ref client) = net_client {
+                    if let Some(ref world) = client.latest_world {
+                        for en in &world.enemies {
+                            let race_idx = en.race_idx;
+                            if race_idx < enemy_director.preloaded_races.len() {
+                                let race = &enemy_director.preloaded_races[race_idx];
+                                let anim = remote_enemy_anims.entry(en.id).or_insert_with(|| {
+                                    AnimationManager::new(SpriteSheetConfig {
+                                        columns: 29,
+                                        rows: 8,
+                                    })
+                                });
+                                
+                                // Map anim_state from server to local AnimationState
+                                let state = match en.anim_state {
+                                    0 => AnimationState::Idle,
+                                    1 => AnimationState::Walk,
+                                    3 => AnimationState::Sword,
+                                    7 => AnimationState::Death,
+                                    _ => AnimationState::Idle,
+                                };
+                                anim.set_state(state);
+                                if en.direction <= 7 {
+                                    anim.direction = unsafe { std::mem::transmute(en.direction) };
+                                }
+                                anim.update(delta_time, 3.5, 1.0);
+
+                                let pos = vec3(en.x, 0.0, en.z);
+                                for tex in &race.textures {
+                                    let src = anim.get_source_rect(tex.width(), tex.height());
+                                    sort_list.push(SortItem {
+                                        pos,
+                                        kind: DrawKind::Billboard {
+                                            tex: tex.clone(),
+                                            src,
+                                            size: race.archetype.scale,
+                                        },
+                                        dist_sq: (cam_pos - pos).length_squared(),
+                                        color: WHITE,
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Add Hero
                 for tex in &char_textures.layers {
                     let src = hero.anim.get_source_rect(tex.width(), tex.height());
+                    let color = if hero.is_dead {
+                        Color::new(0.5, 0.5, 0.7, 0.6)
+                    } else {
+                        WHITE
+                    };
                     sort_list.push(SortItem {
                         pos: hero.pos,
                         kind: DrawKind::Billboard {
@@ -1220,6 +1360,7 @@ async fn main() {
                             size: 2.3,
                         },
                         dist_sq: (cam_pos - hero.pos).length_squared(),
+                        color,
                     });
                 }
 
@@ -1235,6 +1376,11 @@ async fn main() {
                                 if let Some(anim) = remote_anims.get(&ps.id) {
                                     for tex in textures {
                                         let src = anim.get_source_rect(tex.width(), tex.height());
+                                        let color = if ps.is_dead {
+                                            Color::new(0.5, 0.5, 0.7, 0.6)
+                                        } else {
+                                            WHITE
+                                        };
                                         sort_list.push(SortItem {
                                             pos,
                                             kind: DrawKind::Billboard {
@@ -1243,6 +1389,7 @@ async fn main() {
                                                 size: 2.0,
                                             },
                                             dist_sq: (cam_pos - pos).length_squared(),
+                                            color,
                                         });
                                     }
                                 }
@@ -1256,7 +1403,8 @@ async fn main() {
                     sort_list.push(SortItem {
                         pos: p.pos,
                         kind: DrawKind::Particle { index: i },
-                        dist_sq: (cam_pos - p.pos).length_squared(),
+                        dist_sq: (cam_pos - p.pos).length_squared() - 0.1, // Add bias to guarantee rendering on top
+                        color: WHITE,
                     });
                 }
 
@@ -1267,7 +1415,7 @@ async fn main() {
                 for item in sort_list {
                     match item.kind {
                         DrawKind::Billboard { tex, src, size } => {
-                            draw_character_billboard_ex(item.pos, &tex, src, cam_pos, size);
+                            draw_character_billboard_ex(item.pos, &tex, src, cam_pos, size, item.color);
                         }
                         DrawKind::Particle { index } => {
                             effect_manager.draw_particle(&effect_manager.particles[index], cam_pos);
@@ -1276,8 +1424,17 @@ async fn main() {
                 }
 
                 // Draw HP bars (separately as they are solid cubes)
-                for d_pos in &dummies {
-                    draw_cube(*d_pos + vec3(0.0, 3.5, 0.0), vec3(1.5, 0.1, 0.1), None, RED);
+                for enemy in &enemy_director.active_enemies {
+                    let hp_pct = enemy.stats.current_hp as f32 / enemy.stats.max_hp as f32;
+                    if hp_pct < 1.0 && hp_pct > 0.0 {
+                        let bar_w = 1.2;
+                        let cur_w = bar_w * hp_pct;
+                        
+                        // Background (red)
+                        draw_cube(enemy.pos + vec3(0.0, enemy.scale * 0.9, 0.0), vec3(bar_w, 0.08, 0.08), None, RED);
+                        // Foreground (green)
+                        draw_cube(enemy.pos + vec3((cur_w - bar_w) / 2.0, enemy.scale * 0.9, 0.0), vec3(cur_w, 0.085, 0.085), None, GREEN);
+                    }
                 }
 
                 match hero.targeting_state {
@@ -1296,6 +1453,8 @@ async fn main() {
 
                 set_default_camera();
                 ui::hud::draw_hud(&hero, &assets);
+                ui::hud::draw_revive_progress(hero.revive_progress);
+                combat_text_mgr.draw(&game_camera);
 
                 // Draw ping
                 if let Some(ref client) = net_client {
@@ -1323,6 +1482,45 @@ async fn main() {
                     );
                 } else {
                     show_mouse(true);
+                }
+            }
+            GameState::GameOver => {
+                show_mouse(true);
+                clear_background(Color::new(0.05, 0.0, 0.0, 1.0));
+                let sw = screen_width();
+                let sh = screen_height();
+                
+                draw_text("GAME OVER", sw/2.0 - 150.0, sh/2.0 - 50.0, 60.0, RED);
+                draw_text("The party has been defeated.", sw/2.0 - 160.0, sh/2.0 + 10.0, 24.0, GRAY);
+                
+                let btn_w = 240.0;
+                let btn_h = 50.0;
+                let btn_x = sw/2.0 - btn_w/2.0;
+                let btn_y = sh/2.0 + 80.0;
+                
+                let mouse = mouse_position();
+                let hovered = mouse.0 >= btn_x && mouse.0 <= btn_x + btn_w && mouse.1 >= btn_y && mouse.1 <= btn_y + btn_h;
+                
+                draw_rectangle(btn_x, btn_y, btn_w, btn_h, if hovered { Color::new(0.3, 0.1, 0.1, 1.0) } else { Color::new(0.2, 0.05, 0.05, 1.0) });
+                draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 2.0, if hovered { RED } else { Color::new(0.5, 0.1, 0.1, 1.0) });
+                
+                draw_text("RESTART", btn_x + 75.0, btn_y + 35.0, 28.0, WHITE);
+                
+                if hovered && is_mouse_button_pressed(MouseButton::Left) {
+                    // Close connection and restart
+                    net_client = None;
+                    creator.confirmed = false;
+                    game_state = GameState::CharacterCreation;
+                    
+                    // Reset hero
+                    hero.is_dead = false;
+                    hero.revive_progress = 0.0;
+                    hero.stats.current_hp = hero.stats.max_hp;
+                    hero.stats.current_mp = hero.stats.max_mp;
+                    hero.pos = vec3(0.0, 0.0, 0.0);
+                    hero.target_pos = vec3(0.0, 0.0, 0.0);
+                    hero.current_path.clear();
+                    hero.anim.set_state(AnimationState::Idle);
                 }
             }
         }
