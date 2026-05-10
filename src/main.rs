@@ -1140,6 +1140,66 @@ async fn main() {
                     }
                 }
 
+                // ── Single Player: Apply spell damage locally ──
+                if net_client.is_none() {
+                    if let Some(ref ev) = cast_event {
+                        match ev.spell {
+                            SpellId::Q => {
+                                // AoE damage (arrow rain)
+                                for enemy in &mut enemy_director.active_enemies {
+                                    if enemy.state == EnemyState::Dead { continue; }
+                                    let dx = enemy.pos.x - ev.target_x;
+                                    let dz = enemy.pos.z - ev.target_z;
+                                    let dist = (dx * dx + dz * dz).sqrt();
+                                    if dist <= 3.0 {
+                                        let dmg = 20;
+                                        enemy.take_damage(dmg);
+                                        combat_text_mgr.spawn(enemy.pos, dmg, true, YELLOW);
+                                    }
+                                }
+                            }
+                            spell => {
+                                // Unit-target damage (W, E, R)
+                                let dmg = match spell {
+                                    SpellId::W => 30,
+                                    SpellId::E => 20,
+                                    SpellId::R => 40,
+                                    _ => 0,
+                                };
+                                // Find the closest enemy to the target position
+                                let mut closest_idx: Option<usize> = None;
+                                let mut min_dist: f32 = 1.5;
+                                for (i, enemy) in enemy_director.active_enemies.iter().enumerate() {
+                                    if enemy.state == EnemyState::Dead { continue; }
+                                    let dx = enemy.pos.x - ev.target_x;
+                                    let dz = enemy.pos.z - ev.target_z;
+                                    let dist = (dx * dx + dz * dz).sqrt();
+                                    if dist < min_dist {
+                                        min_dist = dist;
+                                        closest_idx = Some(i);
+                                    }
+                                }
+                                if let Some(idx) = closest_idx {
+                                    let hero_pos = hero.pos;
+                                    let enemy = &mut enemy_director.active_enemies[idx];
+                                    enemy.take_damage(dmg);
+                                    combat_text_mgr.spawn(enemy.pos, dmg, true, YELLOW);
+                                    // Knockback
+                                    if enemy.state != EnemyState::Dead {
+                                        let dx = enemy.pos.x - hero_pos.x;
+                                        let dz = enemy.pos.z - hero_pos.z;
+                                        let dist = (dx * dx + dz * dz).sqrt();
+                                        if dist > 0.1 {
+                                            enemy.pos.x += (dx / dist) * 0.5;
+                                            enemy.pos.z += (dz / dist) * 0.5;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Local simulation (for offline or client-side prediction)
                 if net_client.is_none() {
                     if hero.casting_timer > 0.0 {

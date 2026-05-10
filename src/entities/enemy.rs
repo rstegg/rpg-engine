@@ -58,13 +58,15 @@ impl Enemy {
             return;
         }
         self.stats.current_hp -= amount;
-        self.damage_flash_timer = 0.2; // Flash red for 0.2s
+        self.damage_flash_timer = 0.3; // Flash + stun for 0.3s (matches server hurt_timer)
         if self.stats.current_hp <= 0 {
             self.stats.current_hp = 0;
             self.state = EnemyState::Dead;
             self.anim.set_state(AnimationState::Death);
         } else {
-            // Flinch
+            // Flinch — pause AI during this time (checked in EnemyDirector::update)
+            self.state = EnemyState::Idle;
+            self.current_path.clear();
             self.anim.set_state(AnimationState::Hurt);
         }
     }
@@ -258,6 +260,13 @@ impl EnemyDirector {
             }
             if enemy.attack_timer > 0.0 {
                 enemy.attack_timer -= dt;
+            }
+
+            // Hurt stun — skip AI while stunned (matches server hurt_timer behavior)
+            if enemy.damage_flash_timer > 0.0 && enemy.state != EnemyState::Dead {
+                enemy.anim.set_state(AnimationState::Hurt);
+                enemy.anim.update(dt, enemy.stats.get_movement_speed(), 1.0);
+                continue;
             }
 
             if enemy.state != EnemyState::Dead && enemy.state != EnemyState::Attacking {
