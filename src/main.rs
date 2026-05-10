@@ -1498,16 +1498,17 @@ async fn main() {
                         .collect()
                 };
 
+                let mut hp_bars_2d = Vec::new();
                 for (pos, hp, max_hp, scale) in enemy_targets {
                     let hp_pct = hp as f32 / max_hp as f32;
                     if hp_pct < 1.0 && hp_pct > 0.0 {
-                        let bar_w = 1.2;
-                        let cur_w = bar_w * hp_pct;
-                        
-                        // Background (red)
-                        draw_cube(pos + vec3(0.0, scale * 0.9, 0.0), vec3(bar_w, 0.08, 0.08), None, RED);
-                        // Foreground (green)
-                        draw_cube(pos + vec3((cur_w - bar_w) / 2.0, scale * 0.9, 0.0), vec3(cur_w, 0.085, 0.085), None, GREEN);
+                        let matrix = game_camera.camera.matrix();
+                        let screen_pos = matrix.project_point3(pos + vec3(0.0, scale * 1.1, 0.0));
+                        if screen_pos.z >= 0.0 && screen_pos.z <= 1.0 {
+                            let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
+                            let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
+                            hp_bars_2d.push((x, y, hp_pct));
+                        }
                     }
                 }
 
@@ -1526,6 +1527,14 @@ async fn main() {
                 }
 
                 set_default_camera();
+                for (x, y, hp_pct) in hp_bars_2d {
+                    let bar_w = 40.0;
+                    let bar_h = 6.0;
+                    draw_rectangle(x - bar_w / 2.0 - 1.0, y - bar_h / 2.0 - 1.0, bar_w + 2.0, bar_h + 2.0, BLACK);
+                    draw_rectangle(x - bar_w / 2.0, y - bar_h / 2.0, bar_w, bar_h, RED);
+                    draw_rectangle(x - bar_w / 2.0, y - bar_h / 2.0, bar_w * hp_pct, bar_h, GREEN);
+                }
+                
                 ui::hud::draw_hud(&hero, &assets);
                 ui::hud::draw_revive_progress(hero.revive_progress);
                 combat_text_mgr.draw(&game_camera);

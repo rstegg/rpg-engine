@@ -110,7 +110,6 @@ fn draw_orb(x: f32, y: f32, radius: f32, percent: f32, color: Color, label: &str
         
         let mut liquid_points = Vec::new();
         
-        // Calculate intersection points with the fill_top line
         let dy = fill_top - y;
         if dy.abs() < radius {
             let dx = (radius * radius - dy * dy).sqrt();
@@ -118,32 +117,34 @@ fn draw_orb(x: f32, y: f32, radius: f32, percent: f32, color: Color, label: &str
             let x_right = x + dx;
             
             liquid_points.push(vec2(x_left, fill_top));
+            liquid_points.push(vec2(x_right, fill_top));
             
-            // Add points along the bottom arc
+            let mut a_right = dy.atan2(dx);
+            if a_right < 0.0 { a_right += 2.0 * std::f32::consts::PI; }
+            
+            let mut a_left = dy.atan2(-dx);
+            if a_left < 0.0 { a_left += 2.0 * std::f32::consts::PI; }
+            
+            let mut span = a_left - a_right;
+            if span < 0.0 { span += 2.0 * std::f32::consts::PI; }
+            
             let detail = 32;
-            for i in 0..=detail {
-                let a = std::f32::consts::PI * 2.0 * (i as f32 / detail as f32);
+            for i in 1..detail {
+                let a = a_right + span * (i as f32 / detail as f32);
                 let px = x + a.cos() * radius;
                 let py = y + a.sin() * radius;
-                if py > fill_top {
-                    liquid_points.push(vec2(px, py));
-                }
+                liquid_points.push(vec2(px, py));
             }
-            
-            liquid_points.push(vec2(x_right, fill_top));
         } else if dy <= -radius {
             // Full circle
             let detail = 32;
-            for i in 0..=detail {
+            for i in 0..detail {
                 let a = std::f32::consts::PI * 2.0 * (i as f32 / detail as f32);
                 liquid_points.push(vec2(x + a.cos() * radius, y + a.sin() * radius));
             }
         }
         
         if liquid_points.len() >= 3 {
-            // Sort points by angle to center for proper triangle fan? 
-            // Actually, we can just use a triangle fan from the center if we order them correctly.
-            // But a simple way is to draw a triangle fan from the first point if it's convex.
             for i in 1..liquid_points.len() - 1 {
                 draw_triangle(liquid_points[0], liquid_points[i], liquid_points[i+1], color);
             }

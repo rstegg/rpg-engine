@@ -65,6 +65,7 @@ struct ServerEnemy {
     next_path_recalc: f32,
     death_timer: f32,
     hurt_timer: f32,
+    attack_timer: f32,
 }
 
 fn main() {
@@ -254,6 +255,7 @@ fn main() {
                         next_path_recalc: 0.0,
                         death_timer: 0.0,
                         hurt_timer: 0.0,
+                        attack_timer: 0.0,
                     });
                     next_enemy_id += 1;
                 }
@@ -271,6 +273,10 @@ fn main() {
                     enemy.hurt_timer -= dt;
                     enemy.anim_state = 6; // Hurt
                     continue;
+                }
+                
+                if enemy.attack_timer > 0.0 {
+                    enemy.attack_timer -= dt;
                 }
                 
                 enemy.next_path_recalc -= dt;
@@ -293,20 +299,25 @@ fn main() {
                     let target = players.get(&addr).unwrap();
                     // Attack range check
                     if nearest_dist <= 1.5 {
-                        enemy.anim_state = 3; // Sword/Attack
                         enemy.target_x = enemy.x;
                         enemy.target_z = enemy.z;
                         enemy.current_path.clear();
                         
-                        // Deal damage periodically (e.g. every 1 second during attack)
-                        // For simplicity, we'll just deal a tiny bit every tick
-                        let player_mut = players.get_mut(&addr).unwrap();
-                        if !player_mut.is_invulnerable {
-                            player_mut.current_hp -= (20.0 * dt) as i32;
-                            if player_mut.current_hp <= 0 {
-                                player_mut.current_hp = 0;
-                                player_mut.is_dead = true;
+                        if enemy.attack_timer <= 0.0 {
+                            enemy.anim_state = 3; // Sword/Attack
+                            enemy.attack_timer = 2.0; // Attack cooldown
+                            let player_mut = players.get_mut(&addr).unwrap();
+                            if !player_mut.is_invulnerable {
+                                player_mut.current_hp -= 20;
+                                if player_mut.current_hp <= 0 {
+                                    player_mut.current_hp = 0;
+                                    player_mut.is_dead = true;
+                                }
                             }
+                        } else if enemy.attack_timer <= 1.5 {
+                            enemy.anim_state = 0; // Return to idle after animation
+                        } else {
+                            enemy.anim_state = 3; // Keep playing attack animation
                         }
                     } else {
                         // Chase
@@ -771,6 +782,7 @@ fn handle_client_message(
                     next_path_recalc: 0.0,
                     death_timer: 0.0,
                     hurt_timer: 0.0,
+                    attack_timer: 0.0,
                 });
                 println!("[SERVER] Forced spawn enemy ID {} near player {}", next_enemy_id, player.name);
                 *next_enemy_id += 1;
