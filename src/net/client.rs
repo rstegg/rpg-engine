@@ -12,7 +12,7 @@ pub struct NetClient {
     pub ping_ms: f64,
     last_ping_time: Instant,
     pending_ping: Option<f64>,
-    pub pending_map: Option<Vec<ModelPlacementNet>>,
+    pub pending_map: Option<(Vec<(String, String)>, Vec<ModelPlacementNet>)>,
     pub latest_msg: Option<ServerMessage>,
 }
 
@@ -73,7 +73,7 @@ impl NetClient {
     /// Poll for incoming server messages. Call this every frame.
     pub fn update(&mut self) {
         self.latest_msg = None;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
 
         // Read all pending packets
         loop {
@@ -112,9 +112,10 @@ impl NetClient {
                 eprintln!("[NET] Join rejected: {}", reason);
                 self.connected = false;
             }
-            ServerMessage::MapData { placements } => {
-                println!("[NET] Received MapData with {} placements", placements.len());
-                self.pending_map = Some(placements);
+            ServerMessage::MapData { palette, placements } => {
+                println!("[NET] Received MapData with {} placements ({} in palette)", 
+                    placements.len(), palette.len());
+                self.pending_map = Some((palette, placements));
             }
             ServerMessage::PlayerJoined {
                 id,

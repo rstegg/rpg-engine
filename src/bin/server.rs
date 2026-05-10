@@ -37,6 +37,7 @@ struct ServerPlayer {
     max_mp: i32,
     is_dead: bool,
     revive_timer: f32,
+    is_invulnerable: bool,
 }
 
 /// Active spell effects in the world.
@@ -62,6 +63,8 @@ struct ServerEnemy {
     max_health: i32,
     current_path: Vec<Vec3>,
     next_path_recalc: f32,
+    death_timer: f32,
+    hurt_timer: f32,
 }
 
 fn main() {
@@ -115,7 +118,7 @@ fn main() {
     let tick_duration = Duration::from_millis(1000 / SERVER_TICK_RATE);
     let mut last_tick = Instant::now();
 
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; 65536];
 
     loop {
         // ─── 1. Receive all pending client packets ───
@@ -128,17 +131,23 @@ fn main() {
                             addr,
                             msg,
                             &mut players,
+                            &mut enemies,
                             &mut effects,
                             &mut next_player_id,
+                            &mut next_enemy_id,
                             &mut next_effect_id,
                             &mut world_sim,
                         );
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                    // Ignore Windows UDP "os error 10054" (ICMP Port Unreachable)
+                    continue;
+                }
                 Err(e) => {
                     eprintln!("[SERVER] Socket error: {}", e);
-                    break;
+                    continue;
                 }
             }
         }
@@ -243,6 +252,8 @@ fn main() {
                         max_health: 100,
                         current_path: Vec::new(),
                         next_path_recalc: 0.0,
+                        death_timer: 0.0,
+                        hurt_timer: 0.0,
                     });
                     next_enemy_id += 1;
                 }
@@ -250,7 +261,17 @@ fn main() {
 
             // Update enemies
             for enemy in enemies.values_mut() {
-                if enemy.health <= 0 { continue; }
+                if enemy.health <= 0 {
+                    enemy.death_timer += dt;
+                    enemy.anim_state = 7; // Death
+                    continue;
+                }
+                
+                if enemy.hurt_timer > 0.0 {
+                    enemy.hurt_timer -= dt;
+                    enemy.anim_state = 6; // Hurt
+                    continue;
+                }
                 
                 enemy.next_path_recalc -= dt;
                 
@@ -280,16 +301,18 @@ fn main() {
                         // Deal damage periodically (e.g. every 1 second during attack)
                         // For simplicity, we'll just deal a tiny bit every tick
                         let player_mut = players.get_mut(&addr).unwrap();
-                        player_mut.current_hp -= (20.0 * dt) as i32;
-                        if player_mut.current_hp <= 0 {
-                            player_mut.current_hp = 0;
-                            player_mut.is_dead = true;
+                        if !player_mut.is_invulnerable {
+                            player_mut.current_hp -= (20.0 * dt) as i32;
+                            if player_mut.current_hp <= 0 {
+                                player_mut.current_hp = 0;
+                                player_mut.is_dead = true;
+                            }
                         }
                     } else {
                         // Chase
                         if enemy.next_path_recalc <= 0.0 {
                             enemy.next_path_recalc = 0.5; // Recalc every 500ms
-                            if let Some(path) = find_path(
+                            if let Some(mut path) = find_path(
                                 vec3(enemy.x, 0.0, enemy.z),
                                 vec3(target.x, 0.0, target.z),
                                 world_sim.grid_size,
@@ -297,6 +320,9 @@ fn main() {
                                 world_sim.height,
                                 &world_sim.walkability_grid,
                             ) {
+                                if path.len() > 1 && (path[0] - vec3(enemy.x, 0.0, enemy.z)).length() < world_sim.grid_size {
+                                    path.remove(0);
+                                }
                                 enemy.current_path = path;
                             }
                         }
@@ -342,6 +368,9 @@ fn main() {
                 effect.timer -= dt;
             }
             effects.retain(|e| e.timer > 0.0);
+            
+            // Clean up dead enemies after death animation finishes (e.g. 2.5 secs)
+            enemies.retain(|_, e| e.death_timer < 2.5);
 
             // Handle Revival
             let player_ids: Vec<SocketAddr> = players.keys().cloned().collect();
@@ -466,8 +495,10 @@ fn handle_client_message(
     addr: SocketAddr,
     msg: ClientMessage,
     players: &mut HashMap<SocketAddr, ServerPlayer>,
+    enemies: &mut HashMap<u64, ServerEnemy>,
     effects: &mut Vec<ActiveEffect>,
     next_id: &mut PlayerId,
+    next_enemy_id: &mut u64,
     next_effect_id: &mut u64,
     world_sim: &mut WorldSimulation,
 ) {
@@ -498,15 +529,27 @@ fn handle_client_message(
             let _ = socket.send_to(&accept, addr);
 
             // Send map data
-            let map_msg = encode_server_message(&ServerMessage::MapData {
-                placements: world_sim.placements.iter().map(|p| ModelPlacementNet {
-                    model: p.model.clone(),
-                    file: p.file.clone(),
+            let mut palette = Vec::new();
+            let mut palette_map = HashMap::new();
+            let net_placements = world_sim.placements.iter().map(|p| {
+                let key = (p.model.clone(), p.file.clone());
+                let model_idx = *palette_map.entry(key.clone()).or_insert_with(|| {
+                    let idx = palette.len() as u16;
+                    palette.push(key);
+                    idx
+                });
+                ModelPlacementNet {
+                    model_idx,
                     position: p.position,
                     rotation: p.rotation,
                     scale: p.scale,
                     blocks_movement: p.blocks_movement,
-                }).collect(),
+                }
+            }).collect();
+
+            let map_msg = encode_server_message(&ServerMessage::MapData {
+                palette,
+                placements: net_placements,
             });
             let _ = socket.send_to(&map_msg, addr);
 
@@ -550,6 +593,7 @@ fn handle_client_message(
                 max_mp: 100,
                 is_dead: false,
                 revive_timer: 0.0,
+                is_invulnerable: false,
             });
         }
 
@@ -562,6 +606,14 @@ fn handle_client_message(
         }
 
         ClientMessage::CastSpell { spell, target_x, target_z } => {
+            if spell == 99 {
+                println!("[SERVER] Player at {} cast KILL ALL", addr);
+                for enemy in enemies.values_mut() {
+                    enemy.health = 0;
+                }
+                return;
+            }
+
             if let Some(player) = players.get_mut(&addr) {
                 player.last_heard = Instant::now();
                 player.target_x = player.x; // Stop moving
@@ -576,6 +628,9 @@ fn handle_client_message(
                     3 => 9,  // R = CarryIdle
                     _ => 0,
                 };
+
+                let player_x = player.x;
+                let player_z = player.z;
 
                 // Calculate direction to target
                 let dx = target_x - player.x;
@@ -592,6 +647,64 @@ fn handle_client_message(
                     3 => 0.9,  // Dark void
                     _ => 0.5,
                 };
+
+                // Deal Damage
+                if spell == 0 {
+                    // AoE Damage
+                    for enemy in enemies.values_mut() {
+                        let dx_e = enemy.x - target_x;
+                        let dz_e = enemy.z - target_z;
+                        let dist = (dx_e * dx_e + dz_e * dz_e).sqrt();
+                        if dist <= 3.0 && enemy.health > 0 {
+                            enemy.health = (enemy.health - 20).max(0);
+                            if enemy.health <= 0 {
+                                enemy.anim_state = 7;
+                            } else {
+                                enemy.anim_state = 6;
+                                enemy.hurt_timer = 0.3;
+                                // No knockback for AoE arrow rain
+                            }
+                        }
+                    }
+                } else if spell == 1 || spell == 2 || spell == 3 {
+                    // Unit target damage
+                    let dmg = match spell {
+                        1 => 30,
+                        2 => 20,
+                        3 => 40,
+                        _ => 0,
+                    };
+                    
+                    let mut closest_enemy = None;
+                    let mut min_dist = 1.5;
+                    for enemy in enemies.values_mut() {
+                        if enemy.health > 0 {
+                            let dx_e = enemy.x - target_x;
+                            let dz_e = enemy.z - target_z;
+                            let dist = (dx_e * dx_e + dz_e * dz_e).sqrt();
+                            if dist < min_dist {
+                                min_dist = dist;
+                                closest_enemy = Some(enemy);
+                            }
+                        }
+                    }
+                    if let Some(enemy) = closest_enemy {
+                        enemy.health = (enemy.health - dmg).max(0);
+                        if enemy.health <= 0 {
+                            enemy.anim_state = 7;
+                        } else {
+                            enemy.anim_state = 6;
+                            enemy.hurt_timer = 0.3;
+                            let dx_e = enemy.x - player_x;
+                            let dz_e = enemy.z - player_z;
+                            let dist = (dx_e * dx_e + dz_e * dz_e).sqrt();
+                            if dist > 0.1 {
+                                enemy.x += (dx_e / dist) * 0.5;
+                                enemy.z += (dz_e / dist) * 0.5;
+                            }
+                        }
+                    }
+                }
 
                 effects.push(ActiveEffect {
                     effect_id: *next_effect_id,
@@ -624,6 +737,43 @@ fn handle_client_message(
             if let Some(player) = players.remove(&addr) {
                 println!("[SERVER] Player {} ({}) disconnected", player.name, player.id);
                 broadcast(socket, players, &ServerMessage::PlayerLeft { id: player.id });
+            }
+        }
+        ClientMessage::DebugToggleGodMode => {
+            if let Some(player) = players.get_mut(&addr) {
+                player.is_invulnerable = !player.is_invulnerable;
+                println!(
+                    "[SERVER] Player {} god mode: {}",
+                    player.name, player.is_invulnerable
+                );
+            }
+        }
+        ClientMessage::DebugForceSpawn => {
+            if let Some(player) = players.get(&addr) {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+                let spawn_x = player.x + angle.cos() * 5.0;
+                let spawn_z = player.z + angle.sin() * 5.0;
+                
+                enemies.insert(*next_enemy_id, ServerEnemy {
+                    id: *next_enemy_id,
+                    race_idx: rng.gen_range(0..2),
+                    x: spawn_x,
+                    z: spawn_z,
+                    target_x: spawn_x,
+                    target_z: spawn_z,
+                    direction: 0,
+                    anim_state: 0,
+                    health: 100,
+                    max_health: 100,
+                    current_path: Vec::new(),
+                    next_path_recalc: 0.0,
+                    death_timer: 0.0,
+                    hurt_timer: 0.0,
+                });
+                println!("[SERVER] Forced spawn enemy ID {} near player {}", next_enemy_id, player.name);
+                *next_enemy_id += 1;
             }
         }
     }

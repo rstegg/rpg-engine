@@ -218,6 +218,10 @@ async fn main() {
         std::collections::HashMap::new();
     let mut remote_enemy_anims: std::collections::HashMap<u64, AnimationManager> =
         std::collections::HashMap::new();
+    let mut remote_player_positions: std::collections::HashMap<u64, Vec3> =
+        std::collections::HashMap::new();
+    let mut remote_enemy_positions: std::collections::HashMap<u64, Vec3> =
+        std::collections::HashMap::new();
     let mut spawned_effect_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
     // Calibration state
@@ -750,22 +754,32 @@ async fn main() {
                     draw_text("Waiting for world data...", sw / 2.0 - 100.0, sh / 2.0 + 60.0, 18.0, YELLOW);
                     
                     if nc.connected && nc.pending_map.is_some() {
-                        let placements = nc.pending_map.take().unwrap();
-                        println!("[CLIENT] Building world from server placements ({})...", placements.len());
-                        
-                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
+                        let (palette, placements) = nc.pending_map.take().unwrap();
+                        println!(
+                            "[CLIENT] Building world from server placements ({})...",
+                            placements.len()
+                        );
+
+                        world_env =
+                            world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false)
+                                .await;
                         for p in placements {
-                            if !world_env.sim.templates.contains_key(&p.model) {
-                                if let Some(template) = world::environment::load_glb_template(&format!(
-                                    "assets/world_models/{}",
-                                    p.file
-                                )).await {
-                                    world_env.sim.templates.insert(p.model.clone(), template);
+                            let (model_name, file_name) = &palette[p.model_idx as usize];
+                            if !world_env.sim.templates.contains_key(model_name) {
+                                if let Some(template) = world::environment::load_glb_template(
+                                    &format!("assets/world_models/{}", file_name),
+                                )
+                                .await
+                                {
+                                    world_env
+                                        .sim
+                                        .templates
+                                        .insert(model_name.clone(), template);
                                 }
                             }
                             let sim_p = world::cluster::ModelPlacement {
-                                model: p.model.clone(),
-                                file: p.file.clone(),
+                                model: model_name.clone(),
+                                file: file_name.clone(),
                                 position: p.position,
                                 rotation: p.rotation,
                                 scale: p.scale,
@@ -927,10 +941,12 @@ async fn main() {
                         if let Some(my_id) = client.my_id {
                             for ps in &world.players {
                                 if ps.id == my_id {
-                                    hero.pos = vec3(ps.x, 0.0, ps.z);
-                                    hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
-                                    hero.casting_timer = ps.casting_timer;
-                                    hero.pos = vec3(ps.x, 0.0, ps.z);
+                                    let srv_pos = vec3(ps.x, 0.0, ps.z);
+                                    if (hero.pos - srv_pos).length() > 2.0 {
+                                        hero.pos = srv_pos;
+                                    } else {
+                                        hero.pos = hero.pos.lerp(srv_pos, 4.0 * delta_time);
+                                    }
                                     hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
                                     hero.casting_timer = ps.casting_timer;
                                     hero.stats.current_hp = ps.current_hp;
@@ -961,6 +977,16 @@ async fn main() {
                                         hero.anim.set_state(server_state);
                                     }
                                 } else {
+                                    let pos = remote_player_positions
+                                        .entry(ps.id)
+                                        .or_insert(vec3(ps.x, 0.0, ps.z));
+                                    let srv_pos = vec3(ps.x, 0.0, ps.z);
+                                    if (*pos - srv_pos).length() > 2.0 {
+                                        *pos = srv_pos;
+                                    } else {
+                                        *pos = pos.lerp(srv_pos, 15.0 * delta_time);
+                                    }
+
                                     let anim = remote_anims.entry(ps.id).or_insert_with(|| {
                                         AnimationManager::new(SpriteSheetConfig {
                                             columns: 29,
@@ -1031,16 +1057,43 @@ async fn main() {
                         // Cleanup remote enemy anims for enemies no longer in the snapshot
                         let current_enemy_ids: std::collections::HashSet<u64> = world.enemies.iter().map(|e| e.id).collect();
                         remote_enemy_anims.retain(|id, _| current_enemy_ids.contains(id));
+                        remote_enemy_positions.retain(|id, _| current_enemy_ids.contains(id));
+
+                        for en in &world.enemies {
+                            let pos = remote_enemy_positions.entry(en.id).or_insert(vec3(en.x, 0.0, en.z));
+                            let srv_pos = vec3(en.x, 0.0, en.z);
+                            if (*pos - srv_pos).length() > 2.0 {
+                                *pos = srv_pos;
+                            } else {
+                                *pos = pos.lerp(srv_pos, 15.0 * delta_time);
+                            }
+                        }
                     }
                 }
 
                 game_camera.update(hero.pos);
+                let targets: Vec<(u64, Vec3)> = if let Some(ref client) = net_client {
+                    if let Some(ref world) = client.latest_world {
+                        world.enemies.iter()
+                            .filter(|e| e.health > 0)
+                            .map(|e| (e.id, *remote_enemy_positions.get(&e.id).unwrap_or(&vec3(e.x, 0.0, e.z))))
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    enemy_director.active_enemies.iter()
+                        .filter(|e| e.state != crate::entities::enemy::EnemyState::Dead)
+                        .map(|e| (e.id, e.pos))
+                        .collect()
+                };
+
                 let cast_event = if !hero.is_dead {
                     handle_input(
                         &mut hero,
                         &game_camera,
                         &mut effect_manager,
-                        &mut enemy_director.active_enemies,
+                        &targets,
                         &mut combat_text_mgr,
                         &assets,
                         &world_env,
@@ -1080,6 +1133,10 @@ async fn main() {
                             target_x: ev.target_x,
                             target_z: ev.target_z,
                         });
+                    }
+
+                    if is_key_pressed(KeyCode::G) {
+                        client.send(&ClientMessage::DebugToggleGodMode);
                     }
                 }
 
@@ -1316,6 +1373,7 @@ async fn main() {
                                     0 => AnimationState::Idle,
                                     1 => AnimationState::Walk,
                                     3 => AnimationState::Sword,
+                                    6 => AnimationState::Hurt,
                                     7 => AnimationState::Death,
                                     _ => AnimationState::Idle,
                                 };
@@ -1325,7 +1383,7 @@ async fn main() {
                                 }
                                 anim.update(delta_time, 3.5, 1.0);
 
-                                let pos = vec3(en.x, 0.0, en.z);
+                                let pos = *remote_enemy_positions.get(&en.id).unwrap_or(&vec3(en.x, 0.0, en.z));
                                 for tex in &race.textures {
                                     let src = anim.get_source_rect(tex.width(), tex.height());
                                     sort_list.push(SortItem {
@@ -1371,7 +1429,7 @@ async fn main() {
                             if Some(ps.id) == client.my_id {
                                 continue;
                             }
-                            let pos = vec3(ps.x, 0.0, ps.z);
+                            let pos = *remote_player_positions.get(&ps.id).unwrap_or(&vec3(ps.x, 0.0, ps.z));
                             if let Some(textures) = remote_textures.get(&ps.id) {
                                 if let Some(anim) = remote_anims.get(&ps.id) {
                                     for tex in textures {
@@ -1424,16 +1482,32 @@ async fn main() {
                 }
 
                 // Draw HP bars (separately as they are solid cubes)
-                for enemy in &enemy_director.active_enemies {
-                    let hp_pct = enemy.stats.current_hp as f32 / enemy.stats.max_hp as f32;
+                let enemy_targets: Vec<(Vec3, i32, i32, f32)> = if let Some(ref client) = net_client {
+                    if let Some(ref world) = client.latest_world {
+                        world.enemies.iter().map(|e| {
+                            let pos = *remote_enemy_positions.get(&e.id).unwrap_or(&vec3(e.x, 0.0, e.z));
+                            let race_scale = if e.race_idx < enemy_director.preloaded_races.len() {
+                                enemy_director.preloaded_races[e.race_idx].archetype.scale
+                            } else { 2.0 };
+                            (pos, e.health, e.max_health, race_scale)
+                        }).collect()
+                    } else { vec![] }
+                } else {
+                    enemy_director.active_enemies.iter()
+                        .map(|e| (e.pos, e.stats.current_hp, e.stats.max_hp, e.scale))
+                        .collect()
+                };
+
+                for (pos, hp, max_hp, scale) in enemy_targets {
+                    let hp_pct = hp as f32 / max_hp as f32;
                     if hp_pct < 1.0 && hp_pct > 0.0 {
                         let bar_w = 1.2;
                         let cur_w = bar_w * hp_pct;
                         
                         // Background (red)
-                        draw_cube(enemy.pos + vec3(0.0, enemy.scale * 0.9, 0.0), vec3(bar_w, 0.08, 0.08), None, RED);
+                        draw_cube(pos + vec3(0.0, scale * 0.9, 0.0), vec3(bar_w, 0.08, 0.08), None, RED);
                         // Foreground (green)
-                        draw_cube(enemy.pos + vec3((cur_w - bar_w) / 2.0, enemy.scale * 0.9, 0.0), vec3(cur_w, 0.085, 0.085), None, GREEN);
+                        draw_cube(pos + vec3((cur_w - bar_w) / 2.0, scale * 0.9, 0.0), vec3(cur_w, 0.085, 0.085), None, GREEN);
                     }
                 }
 

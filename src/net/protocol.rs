@@ -13,7 +13,7 @@ pub const DEFAULT_PORT: u16 = 7878;
 pub const PROTOCOL_MAGIC: [u8; 4] = [0x52, 0x50, 0x47, 0x45]; // "RPGE"
 
 /// Protocol version — clients and server must match.
-pub const PROTOCOL_VERSION: u8 = 1;
+pub const PROTOCOL_VERSION: u8 = 2;
 
 // ─── Unique Player Identity ───
 
@@ -41,6 +41,10 @@ pub enum ClientMessage {
     Ping { client_time: f64 },
     /// Player is leaving gracefully.
     Disconnect,
+    /// DEBUG: Toggle invulnerability.
+    DebugToggleGodMode,
+    /// DEBUG: Force spawn an enemy nearby for testing.
+    DebugForceSpawn,
 }
 
 // ─── Server → Client Messages ───
@@ -50,7 +54,10 @@ pub enum ServerMessage {
     /// Welcome! Here is your assigned player ID and the world map data.
     JoinAccepted { your_id: PlayerId },
     /// The map data (placements).
-    MapData { placements: Vec<ModelPlacementNet> },
+    MapData {
+        palette: Vec<(String, String)>, // (model, file)
+        placements: Vec<ModelPlacementNet>,
+    },
     /// Server is full or version mismatch.
     JoinRejected { reason: String },
     /// A new player has joined.
@@ -125,8 +132,7 @@ pub struct EnemyStateNet {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPlacementNet {
-    pub model: String,
-    pub file: String,
+    pub model_idx: u16,
     pub position: [f32; 3],
     pub rotation: f32,
     pub scale: f32,
@@ -157,7 +163,7 @@ pub fn encode_client_message(msg: &ClientMessage) -> Vec<u8> {
     packet.push(PROTOCOL_VERSION);
     packet.push(0x01); // Message type: Client
     let payload = bincode::serialize(msg).expect("Failed to serialize client message");
-    packet.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    packet.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     packet.extend_from_slice(&payload);
     packet
 }
@@ -168,16 +174,16 @@ pub fn encode_server_message(msg: &ServerMessage) -> Vec<u8> {
     packet.push(PROTOCOL_VERSION);
     packet.push(0x02); // Message type: Server
     let payload = bincode::serialize(msg).expect("Failed to serialize server message");
-    packet.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+    packet.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     packet.extend_from_slice(&payload);
     packet
 }
 
 /// Decode a raw packet. Returns None if invalid.
 pub fn decode_packet(data: &[u8]) -> Option<PacketPayload> {
-    if data.len() < 8 {
+    if data.len() < 10 {
         return None;
-    } // Magic(4) + Version(1) + Type(1) + Len(2)
+    } // Magic(4) + Version(1) + Type(1) + Len(4)
     if &data[0..4] != &PROTOCOL_MAGIC {
         return None;
     }
@@ -186,12 +192,12 @@ pub fn decode_packet(data: &[u8]) -> Option<PacketPayload> {
     }
 
     let msg_type = data[5];
-    let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
+    let payload_len = u32::from_le_bytes([data[6], data[7], data[8], data[9]]) as usize;
 
-    if data.len() < 8 + payload_len {
+    if data.len() < 10 + payload_len {
         return None;
     }
-    let payload = &data[8..8 + payload_len];
+    let payload = &data[10..10 + payload_len];
 
     match msg_type {
         0x01 => bincode::deserialize::<ClientMessage>(payload)

@@ -12,7 +12,7 @@ pub fn handle_input(
     hero: &mut Hero,
     camera: &GameCamera,
     effect_manager: &mut EffectManager,
-    enemies: &mut Vec<crate::entities::enemy::Enemy>,
+    targets: &[(u64, Vec3)],
     combat_text_mgr: &mut crate::ui::combat_text::CombatTextManager,
     assets: &Assets,
     env: &WorldEnvironment,
@@ -54,15 +54,6 @@ pub fn handle_input(
                         hero.cooldowns.insert(SpellId::Q, 3.0);
                         hero.anim.set_state(AnimationState::Bow);
                         effect_manager.spawn_arrow_rain(intersection, assets.spell_q.clone());
-                        
-                        // Deal damage to enemies in AoE
-                        for enemy in enemies.iter_mut() {
-                            if (enemy.pos - intersection).length() <= radius {
-                                let dmg = hero.stats.strength * 2;
-                                enemy.take_damage(dmg);
-                                combat_text_mgr.spawn(enemy.pos, dmg, false, WHITE);
-                            }
-                        }
                     }
                     cast_event = Some(SpellCastEvent {
                         spell,
@@ -82,11 +73,8 @@ pub fn handle_input(
                 if let Some(intersection) = camera.get_mouse_ray_intersection() {
                     let mut target_idx = None;
                     let mut min_dist = 2.5; // Only target units within this radius
-                    for (i, enemy) in enemies.iter().enumerate() {
-                        if enemy.state == crate::entities::enemy::EnemyState::Dead {
-                            continue;
-                        }
-                        let dist = (intersection - enemy.pos).length();
+                    for (i, target) in targets.iter().enumerate() {
+                        let dist = (intersection - target.1).length();
                         if dist < min_dist {
                             min_dist = dist;
                             target_idx = Some(i);
@@ -94,8 +82,8 @@ pub fn handle_input(
                     }
 
                     if let Some(idx) = target_idx {
-                        let target_pos = enemies[idx].pos;
-                        let target_id = enemies[idx].id;
+                        let target_pos = targets[idx].1;
+                        let target_id = targets[idx].0;
                         hero.target_pos = hero.pos;
                         hero.current_path.clear();
                         hero.anim.set_direction(target_pos - hero.pos);
@@ -111,9 +99,6 @@ pub fn handle_input(
                                     SpellId::W,
                                     Some(target_id),
                                 );
-                                let dmg = hero.stats.strength * 3;
-                                enemies[idx].take_damage(dmg);
-                                combat_text_mgr.spawn(enemies[idx].pos, dmg, false, WHITE);
                             }
                             SpellId::E => {
                                 hero.cooldowns.insert(SpellId::E, 2.0);
@@ -124,9 +109,6 @@ pub fn handle_input(
                                     SpellId::E,
                                     Some(target_id),
                                 );
-                                let dmg = hero.stats.intelligence * 2;
-                                enemies[idx].take_damage(dmg);
-                                combat_text_mgr.spawn(enemies[idx].pos, dmg, false, WHITE);
                             }
                             SpellId::R => {
                                 hero.cooldowns.insert(SpellId::R, 5.0);
@@ -137,9 +119,6 @@ pub fn handle_input(
                                     SpellId::R,
                                     Some(target_id),
                                 );
-                                let dmg = hero.stats.intelligence * 4;
-                                enemies[idx].take_damage(dmg);
-                                combat_text_mgr.spawn(enemies[idx].pos, dmg, true, YELLOW);
                             }
                             _ => {}
                         }
