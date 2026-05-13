@@ -13,7 +13,10 @@ pub const DEFAULT_PORT: u16 = 7878;
 pub const PROTOCOL_MAGIC: [u8; 4] = [0x52, 0x50, 0x47, 0x45]; // "RPGE"
 
 /// Protocol version — clients and server must match.
-pub const PROTOCOL_VERSION: u8 = 2;
+pub const PROTOCOL_VERSION: u8 = 3;
+
+/// Maximum characters per account.
+pub const MAX_CHARACTERS_PER_ACCOUNT: usize = 5;
 
 // ─── Unique Player Identity ───
 
@@ -23,11 +26,27 @@ pub type PlayerId = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientMessage {
-    /// Request to join the server. Sent once on connect.
-    Join {
+    /// Login with a username. Auto-creates account if new.
+    Login {
         version: u8,
+        username: String,
+    },
+    /// Select an existing character to play.
+    SelectCharacter {
+        character_id: i32,
+    },
+    /// Create a new character on the account.
+    CreateCharacter {
         name: String,
         appearance: CharacterAppearanceNet,
+    },
+    /// Delete a character from the account.
+    DeleteCharacter {
+        character_id: i32,
+    },
+    /// Reconnect using a session token after disconnect.
+    Reconnect {
+        session_token: u64,
     },
     /// Player wants to move to this world position.
     MoveTo { x: f32, z: f32 },
@@ -51,8 +70,11 @@ pub enum ClientMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerMessage {
-    /// Welcome! Here is your assigned player ID and the world map data.
-    JoinAccepted { your_id: PlayerId },
+    /// Welcome! Here is your assigned player ID and session token.
+    JoinAccepted {
+        your_id: PlayerId,
+        session_token: u64,
+    },
     /// The map data (placements).
     MapData {
         palette: Vec<(String, String)>, // (model, file)
@@ -60,6 +82,18 @@ pub enum ServerMessage {
     },
     /// Server is full or version mismatch.
     JoinRejected { reason: String },
+    /// Your character list after login.
+    CharacterList {
+        characters: Vec<CharacterSummaryNet>,
+    },
+    /// A character was successfully created.
+    CharacterCreated {
+        character: CharacterSummaryNet,
+    },
+    /// Character creation failed.
+    CharacterCreateFailed { reason: String },
+    /// Character was deleted.
+    CharacterDeleted { character_id: i32 },
     /// A new player has joined.
     PlayerJoined {
         id: PlayerId,
@@ -83,6 +117,18 @@ pub enum ServerMessage {
 }
 
 // ─── Shared Data Structures ───
+
+/// Summary of a character for the select screen.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterSummaryNet {
+    pub id: i32,
+    pub name: String,
+    pub appearance: CharacterAppearanceNet,
+    pub current_hp: i32,
+    pub max_hp: i32,
+    pub current_mp: i32,
+    pub max_mp: i32,
+}
 
 /// Compact player state for network transmission.
 #[derive(Debug, Clone, Serialize, Deserialize)]

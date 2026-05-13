@@ -3,8 +3,6 @@
 //! Run with: cargo run --bin server
 //! Or with a custom port: cargo run --bin server -- 7878
 
-// We need to access the shared net module from the main crate
-// Since this is a separate binary in the same crate, we use `rpg_engine::` path
 use rpg_engine::net::protocol::*;
 
 use rpg_engine::world::environment::{WorldSimulation, HitboxConfig, builtin_template_defs, load_glb_template_sync};
@@ -14,6 +12,11 @@ use macroquad::math::{Vec3, vec3};
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use postgres::{Client as PgClient, NoTls};
+
+/// Autosave interval — WoW-style: save periodically + on disconnect.
+const AUTOSAVE_INTERVAL_SECS: f64 = 60.0;
 
 /// Represents a connected player on the server.
 struct ServerPlayer {
@@ -30,7 +33,6 @@ struct ServerPlayer {
     anim_frame: f32,
     casting_timer: f32,
     last_heard: Instant,
-    // Stats
     current_hp: i32,
     max_hp: i32,
     current_mp: i32,
@@ -38,6 +40,18 @@ struct ServerPlayer {
     is_dead: bool,
     revive_timer: f32,
     is_invulnerable: bool,
+    // ─── Persistence ───
+    account_id: i32,
+    character_id: i32,
+    session_token: u64,
+}
+
+/// Tracks a client that has logged in but hasn't selected a character yet.
+struct PendingClient {
+    addr: SocketAddr,
+    account_id: i32,
+    username: String,
+    last_heard: Instant,
 }
 
 /// Active spell effects in the world.
@@ -68,6 +82,111 @@ struct ServerEnemy {
     attack_timer: f32,
 }
 
+// ─── Database Helpers ───
+
+fn db_connect() -> PgClient {
+    let conn_str = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "host=localhost user=rpg password=rpg_pass dbname=rpg_engine".to_string());
+    PgClient::connect(&conn_str, NoTls).expect("Failed to connect to PostgreSQL")
+}
+
+fn db_run_migrations(db: &mut PgClient) {
+    let sql = include_str!("../../migrations/001_init.sql");
+    db.batch_execute(sql).expect("Failed to run migrations");
+    println!("[DB] Migrations applied.");
+}
+
+fn db_get_or_create_account(db: &mut PgClient, username: &str) -> i32 {
+    // Try insert, on conflict do nothing, then select
+    db.execute(
+        "INSERT INTO accounts (username) VALUES ($1) ON CONFLICT (username) DO NOTHING",
+        &[&username],
+    ).unwrap();
+    let row = db.query_one("SELECT id FROM accounts WHERE username = $1", &[&username]).unwrap();
+    row.get(0)
+}
+
+fn db_list_characters(db: &mut PgClient, account_id: i32) -> Vec<CharacterSummaryNet> {
+    let rows = db.query(
+        "SELECT id, name, appearance, current_hp, max_hp, current_mp, max_mp FROM characters WHERE account_id = $1 ORDER BY last_login DESC",
+        &[&account_id],
+    ).unwrap();
+    rows.iter().map(|r| {
+        let appearance_json: serde_json::Value = r.get(2);
+        let appearance: CharacterAppearanceNet = serde_json::from_value(appearance_json).unwrap_or_else(|_| CharacterAppearanceNet {
+            skin: "Human1".into(), shoes: None, clothes: None, gloves: None,
+            hairstyle: None, facial_hair: None, eye_color: None, eyelashes: None,
+            headgear: None, addon: None,
+        });
+        CharacterSummaryNet {
+            id: r.get(0),
+            name: r.get(1),
+            appearance,
+            current_hp: r.get(3),
+            max_hp: r.get(4),
+            current_mp: r.get(5),
+            max_mp: r.get(6),
+        }
+    }).collect()
+}
+
+fn db_create_character(db: &mut PgClient, account_id: i32, name: &str, appearance: &CharacterAppearanceNet) -> Result<CharacterSummaryNet, String> {
+    // Check limit
+    let count: i64 = db.query_one("SELECT COUNT(*) FROM characters WHERE account_id = $1", &[&account_id])
+        .map_err(|e| e.to_string())?.get(0);
+    if count >= MAX_CHARACTERS_PER_ACCOUNT as i64 {
+        return Err(format!("Maximum {} characters per account", MAX_CHARACTERS_PER_ACCOUNT));
+    }
+    let app_json = serde_json::to_value(appearance).map_err(|e| e.to_string())?;
+    let row = db.query_one(
+        "INSERT INTO characters (account_id, name, appearance) VALUES ($1, $2, $3) RETURNING id, current_hp, max_hp, current_mp, max_mp",
+        &[&account_id, &name, &app_json],
+    ).map_err(|e| {
+        eprintln!("[DB ERROR] Character creation failed: {:?}", e);
+        if let Some(code) = e.code() {
+            if code == &postgres::error::SqlState::UNIQUE_VIOLATION {
+                return "A character with that name already exists".to_string();
+            }
+        }
+        format!("Database error: {}", e)
+    })?;
+    Ok(CharacterSummaryNet {
+        id: row.get(0),
+        name: name.to_string(),
+        appearance: appearance.clone(),
+        current_hp: row.get(1),
+        max_hp: row.get(2),
+        current_mp: row.get(3),
+        max_mp: row.get(4),
+    })
+}
+
+fn db_delete_character(db: &mut PgClient, account_id: i32, character_id: i32) -> bool {
+    let rows = db.execute(
+        "DELETE FROM characters WHERE id = $1 AND account_id = $2",
+        &[&character_id, &account_id],
+    ).unwrap_or(0);
+    rows > 0
+}
+
+/// Load a character's full data from DB. Returns (name, appearance, x, z, hp, max_hp, mp, max_mp, is_dead).
+fn db_load_character(db: &mut PgClient, account_id: i32, character_id: i32) -> Option<(String, CharacterAppearanceNet, f32, f32, i32, i32, i32, i32, bool)> {
+    let row = db.query_opt(
+        "SELECT name, appearance, x, z, current_hp, max_hp, current_mp, max_mp, is_dead FROM characters WHERE id = $1 AND account_id = $2",
+        &[&character_id, &account_id],
+    ).ok()??;
+    let app_json: serde_json::Value = row.get(1);
+    let appearance: CharacterAppearanceNet = serde_json::from_value(app_json).ok()?;
+    Some((row.get(0), appearance, row.get(2), row.get(3), row.get(4), row.get(5), row.get(6), row.get(7), row.get(8)))
+}
+
+fn db_save_player(db: &mut PgClient, p: &ServerPlayer) {
+    let _ = db.execute(
+        "UPDATE characters SET x = $1, z = $2, current_hp = $3, max_hp = $4, current_mp = $5, max_mp = $6, is_dead = $7, last_login = NOW() WHERE id = $8",
+        &[&p.x, &p.z, &p.current_hp, &p.max_hp, &p.current_mp, &p.max_mp, &p.is_dead, &p.character_id],
+    );
+}
+
 fn main() {
     let port = std::env::args()
         .nth(1)
@@ -84,6 +203,12 @@ fn main() {
     println!("  Max players: {}", MAX_PLAYERS);
     println!("  Tick rate: {} Hz", SERVER_TICK_RATE);
     println!("══════════════════════════════════════════");
+
+    // Connect to PostgreSQL
+    println!("[SERVER] Connecting to database...");
+    let mut db = db_connect();
+    db_run_migrations(&mut db);
+    println!("[SERVER] Database ready.");
 
     // Load hitbox config
     let hitbox_config: HitboxConfig = if let Ok(data) = std::fs::read_to_string("assets/world_models/hitboxes.json") {
@@ -107,6 +232,8 @@ fn main() {
     println!("[SERVER] World simulation ready ({} placements)", world_sim.placements.len());
 
     let mut players: HashMap<SocketAddr, ServerPlayer> = HashMap::new();
+    let mut pending_clients: HashMap<SocketAddr, PendingClient> = HashMap::new();
+    let mut sessions: HashMap<u64, SocketAddr> = HashMap::new(); // session_token -> addr
     let mut enemies: HashMap<u64, ServerEnemy> = HashMap::new();
     let mut effects: Vec<ActiveEffect> = Vec::new();
     let mut next_player_id: PlayerId = 1;
@@ -115,6 +242,7 @@ fn main() {
     let mut tick: u64 = 0;
     
     let mut enemy_spawn_timer: f32 = 0.0;
+    let mut last_autosave = Instant::now();
 
     let tick_duration = Duration::from_millis(1000 / SERVER_TICK_RATE);
     let mut last_tick = Instant::now();
@@ -131,7 +259,10 @@ fn main() {
                             &socket,
                             addr,
                             msg,
+                            &mut db,
                             &mut players,
+                            &mut pending_clients,
+                            &mut sessions,
                             &mut enemies,
                             &mut effects,
                             &mut next_player_id,
@@ -423,7 +554,7 @@ fn main() {
                 broadcast(&socket, &players, &ServerMessage::GameOver);
             }
 
-            // Timeout disconnected players (no packet in 10 seconds)
+            // Timeout disconnected players (no packet in 10 seconds) — save to DB first
             let timed_out: Vec<SocketAddr> = players.iter()
                 .filter(|(_, p)| p.last_heard.elapsed().as_secs() > 10)
                 .map(|(addr, _)| *addr)
@@ -431,8 +562,25 @@ fn main() {
 
             for addr in timed_out {
                 if let Some(player) = players.remove(&addr) {
-                    println!("[SERVER] Player {} ({}) timed out", player.name, player.id);
+                    println!("[SERVER] Player {} ({}) timed out — saving to DB", player.name, player.id);
+                    db_save_player(&mut db, &player);
+                    sessions.remove(&player.session_token);
                     broadcast(&socket, &players, &ServerMessage::PlayerLeft { id: player.id });
+                }
+            }
+
+            // Timeout pending clients (no character selected in 30 seconds)
+            pending_clients.retain(|_, pc| pc.last_heard.elapsed().as_secs() < 30);
+
+            // ─── Periodic autosave (WoW-style, every 60s) ───
+            if last_autosave.elapsed().as_secs_f64() > AUTOSAVE_INTERVAL_SECS {
+                last_autosave = Instant::now();
+                let count = players.len();
+                if count > 0 {
+                    for p in players.values() {
+                        db_save_player(&mut db, p);
+                    }
+                    println!("[SERVER] Autosaved {} player(s) to DB", count);
                 }
             }
 
@@ -505,7 +653,10 @@ fn handle_client_message(
     socket: &UdpSocket,
     addr: SocketAddr,
     msg: ClientMessage,
+    db: &mut PgClient,
     players: &mut HashMap<SocketAddr, ServerPlayer>,
+    pending_clients: &mut HashMap<SocketAddr, PendingClient>,
+    sessions: &mut HashMap<u64, SocketAddr>,
     enemies: &mut HashMap<u64, ServerEnemy>,
     effects: &mut Vec<ActiveEffect>,
     next_id: &mut PlayerId,
@@ -514,7 +665,7 @@ fn handle_client_message(
     world_sim: &mut WorldSimulation,
 ) {
     match msg {
-        ClientMessage::Join { version, name, appearance } => {
+        ClientMessage::Login { version, username } => {
             if version != PROTOCOL_VERSION {
                 let reject = encode_server_message(&ServerMessage::JoinRejected {
                     reason: format!("Version mismatch: server={}, client={}", PROTOCOL_VERSION, version),
@@ -523,46 +674,63 @@ fn handle_client_message(
                 return;
             }
 
+            let account_id = db_get_or_create_account(db, &username);
+            let characters = db_list_characters(db, account_id);
+            println!("[SERVER] Login from '{}' (account_id={}, {} chars)", username, account_id, characters.len());
+
+            // Store as pending (not yet in world)
+            pending_clients.insert(addr, PendingClient {
+                addr,
+                account_id,
+                username,
+                last_heard: Instant::now(),
+            });
+
+            let msg = encode_server_message(&ServerMessage::CharacterList { characters });
+            let _ = socket.send_to(&msg, addr);
+        }
+
+        ClientMessage::SelectCharacter { character_id } => {
+            let pc = match pending_clients.remove(&addr) {
+                Some(pc) => pc,
+                None => return,
+            };
+
             if players.len() >= MAX_PLAYERS {
                 let reject = encode_server_message(&ServerMessage::JoinRejected {
                     reason: "Server is full".to_string(),
                 });
                 let _ = socket.send_to(&reject, addr);
+                pending_clients.insert(addr, pc); // put back
                 return;
             }
 
-            // Assign ID
+            let char_data = match db_load_character(db, pc.account_id, character_id) {
+                Some(data) => data,
+                None => {
+                    let reject = encode_server_message(&ServerMessage::JoinRejected {
+                        reason: "Character not found".to_string(),
+                    });
+                    let _ = socket.send_to(&reject, addr);
+                    pending_clients.insert(addr, pc);
+                    return;
+                }
+            };
+
+            let (name, appearance, x, z, hp, max_hp, mp, max_mp, is_dead) = char_data;
+
             let id = *next_id;
             *next_id += 1;
 
-            // Notify the new player of acceptance
-            let accept = encode_server_message(&ServerMessage::JoinAccepted { your_id: id });
+            // Generate session token
+            let session_token: u64 = rand::random();
+
+            // Send acceptance with session token
+            let accept = encode_server_message(&ServerMessage::JoinAccepted { your_id: id, session_token });
             let _ = socket.send_to(&accept, addr);
 
             // Send map data
-            let mut palette = Vec::new();
-            let mut palette_map = HashMap::new();
-            let net_placements = world_sim.placements.iter().map(|p| {
-                let key = (p.model.clone(), p.file.clone());
-                let model_idx = *palette_map.entry(key.clone()).or_insert_with(|| {
-                    let idx = palette.len() as u16;
-                    palette.push(key);
-                    idx
-                });
-                ModelPlacementNet {
-                    model_idx,
-                    position: p.position,
-                    rotation: p.rotation,
-                    scale: p.scale,
-                    blocks_movement: p.blocks_movement,
-                }
-            }).collect();
-
-            let map_msg = encode_server_message(&ServerMessage::MapData {
-                palette,
-                placements: net_placements,
-            });
-            let _ = socket.send_to(&map_msg, addr);
+            send_map_data(socket, addr, world_sim);
 
             // Tell the new player about existing players
             for existing in players.values() {
@@ -581,31 +749,109 @@ fn handle_client_message(
                 appearance: appearance.clone(),
             });
 
-            println!("[SERVER] Player {} ({}) joined from {} [{}/{}]",
+            println!("[SERVER] Player '{}' (id={}) entered world from {} [{}/{}]",
                 name, id, addr, players.len() + 1, MAX_PLAYERS);
+
+            sessions.insert(session_token, addr);
 
             players.insert(addr, ServerPlayer {
                 id,
                 addr,
                 name,
                 appearance,
-                x: 0.0,
-                z: 0.0,
-                target_x: 0.0,
-                target_z: 0.0,
+                x,
+                z,
+                target_x: x,
+                target_z: z,
                 direction: 0,
                 anim_state: 0,
                 anim_frame: 0.0,
                 casting_timer: 0.0,
                 last_heard: Instant::now(),
-                current_hp: 100,
-                max_hp: 100,
-                current_mp: 100,
-                max_mp: 100,
-                is_dead: false,
+                current_hp: hp,
+                max_hp,
+                current_mp: mp,
+                max_mp,
+                is_dead,
                 revive_timer: 0.0,
                 is_invulnerable: false,
+                account_id: pc.account_id,
+                character_id,
+                session_token,
             });
+        }
+
+        ClientMessage::CreateCharacter { name, appearance } => {
+            let pc = match pending_clients.get_mut(&addr) {
+                Some(pc) => { pc.last_heard = Instant::now(); pc.account_id },
+                None => return,
+            };
+
+            match db_create_character(db, pc, &name, &appearance) {
+                Ok(summary) => {
+                    println!("[SERVER] Created character '{}' for account {}", name, pc);
+                    let msg = encode_server_message(&ServerMessage::CharacterCreated { character: summary });
+                    let _ = socket.send_to(&msg, addr);
+                }
+                Err(reason) => {
+                    let msg = encode_server_message(&ServerMessage::CharacterCreateFailed { reason });
+                    let _ = socket.send_to(&msg, addr);
+                }
+            }
+        }
+
+        ClientMessage::DeleteCharacter { character_id } => {
+            let pc = match pending_clients.get_mut(&addr) {
+                Some(pc) => { pc.last_heard = Instant::now(); pc.account_id },
+                None => return,
+            };
+
+            if db_delete_character(db, pc, character_id) {
+                println!("[SERVER] Deleted character id={} for account {}", character_id, pc);
+                let msg = encode_server_message(&ServerMessage::CharacterDeleted { character_id });
+                let _ = socket.send_to(&msg, addr);
+            }
+        }
+
+        ClientMessage::Reconnect { session_token } => {
+            // Find the old player by session token
+            if let Some(old_addr) = sessions.remove(&session_token) {
+                if let Some(mut player) = players.remove(&old_addr) {
+                    println!("[SERVER] Player '{}' reconnected from {}", player.name, addr);
+                    player.addr = addr;
+                    player.last_heard = Instant::now();
+
+                    // Send acceptance
+                    let accept = encode_server_message(&ServerMessage::JoinAccepted {
+                        your_id: player.id,
+                        session_token,
+                    });
+                    let _ = socket.send_to(&accept, addr);
+
+                    // Resend map data
+                    send_map_data(socket, addr, world_sim);
+
+                    // Resend existing player info
+                    for existing in players.values() {
+                        let msg = encode_server_message(&ServerMessage::PlayerJoined {
+                            id: existing.id,
+                            name: existing.name.clone(),
+                            appearance: existing.appearance.clone(),
+                        });
+                        let _ = socket.send_to(&msg, addr);
+                    }
+
+                    sessions.insert(session_token, addr);
+                    players.insert(addr, player);
+                    return;
+                }
+            }
+
+            // Session expired or invalid — reject, client should re-login
+            let reject = encode_server_message(&ServerMessage::JoinRejected {
+                reason: "Session expired — please login again".to_string(),
+            });
+            let _ = socket.send_to(&reject, addr);
         }
 
         ClientMessage::MoveTo { x, z } => {
@@ -627,41 +873,36 @@ fn handle_client_message(
 
             if let Some(player) = players.get_mut(&addr) {
                 player.last_heard = Instant::now();
-                player.target_x = player.x; // Stop moving
+                player.target_x = player.x;
                 player.target_z = player.z;
                 player.casting_timer = 0.5;
 
-                // Set animation based on spell
                 player.anim_state = match spell {
-                    0 => 4,  // Q = Bow
-                    1 => 3,  // W = Sword
-                    2 => 5,  // E = Staff
-                    3 => 9,  // R = CarryIdle
+                    0 => 4,
+                    1 => 3,
+                    2 => 5,
+                    3 => 9,
                     _ => 0,
                 };
 
                 let player_x = player.x;
                 let player_z = player.z;
 
-                // Calculate direction to target
                 let dx = target_x - player.x;
                 let dz = target_z - player.z;
                 let mut angle = f32::atan2(dx, dz);
                 if angle < 0.0 { angle += std::f32::consts::PI * 2.0; }
                 player.direction = ((angle / (std::f32::consts::PI / 4.0)).round() as u8) % 8;
 
-                // Spawn effect
                 let duration = match spell {
-                    0 => 1.0,  // Arrow rain
-                    1 => 0.6,  // Power strike
-                    2 => 0.7,  // Fire claw
-                    3 => 0.9,  // Dark void
+                    0 => 1.0,
+                    1 => 0.6,
+                    2 => 0.7,
+                    3 => 0.9,
                     _ => 0.5,
                 };
 
-                // Deal Damage
                 if spell == 0 {
-                    // AoE Damage
                     for enemy in enemies.values_mut() {
                         let dx_e = enemy.x - target_x;
                         let dz_e = enemy.z - target_z;
@@ -673,19 +914,11 @@ fn handle_client_message(
                             } else {
                                 enemy.anim_state = 6;
                                 enemy.hurt_timer = 0.3;
-                                // No knockback for AoE arrow rain
                             }
                         }
                     }
                 } else if spell == 1 || spell == 2 || spell == 3 {
-                    // Unit target damage
-                    let dmg = match spell {
-                        1 => 30,
-                        2 => 20,
-                        3 => 40,
-                        _ => 0,
-                    };
-                    
+                    let dmg = match spell { 1 => 30, 2 => 20, 3 => 40, _ => 0 };
                     let mut closest_enemy = None;
                     let mut min_dist = 1.5;
                     for enemy in enemies.values_mut() {
@@ -733,6 +966,10 @@ fn handle_client_message(
         }
 
         ClientMessage::Ping { client_time } => {
+            // Update last_heard for pending clients too
+            if let Some(pc) = pending_clients.get_mut(&addr) {
+                pc.last_heard = Instant::now();
+            }
             if let Some(player) = players.get_mut(&addr) {
                 player.last_heard = Instant::now();
                 let server_time = SystemTime::now()
@@ -746,19 +983,21 @@ fn handle_client_message(
 
         ClientMessage::Disconnect => {
             if let Some(player) = players.remove(&addr) {
-                println!("[SERVER] Player {} ({}) disconnected", player.name, player.id);
+                println!("[SERVER] Player {} ({}) disconnected — saving to DB", player.name, player.id);
+                db_save_player(db, &player);
+                sessions.remove(&player.session_token);
                 broadcast(socket, players, &ServerMessage::PlayerLeft { id: player.id });
             }
+            pending_clients.remove(&addr);
         }
+
         ClientMessage::DebugToggleGodMode => {
             if let Some(player) = players.get_mut(&addr) {
                 player.is_invulnerable = !player.is_invulnerable;
-                println!(
-                    "[SERVER] Player {} god mode: {}",
-                    player.name, player.is_invulnerable
-                );
+                println!("[SERVER] Player {} god mode: {}", player.name, player.is_invulnerable);
             }
         }
+
         ClientMessage::DebugForceSpawn => {
             if let Some(player) = players.get(&addr) {
                 use rand::Rng;
@@ -791,6 +1030,33 @@ fn handle_client_message(
     }
 }
 
+/// Send map data to a specific client.
+fn send_map_data(socket: &UdpSocket, addr: SocketAddr, world_sim: &WorldSimulation) {
+    let mut palette = Vec::new();
+    let mut palette_map = HashMap::new();
+    let net_placements: Vec<ModelPlacementNet> = world_sim.placements.iter().map(|p| {
+        let key = (p.model.clone(), p.file.clone());
+        let model_idx = *palette_map.entry(key.clone()).or_insert_with(|| {
+            let idx = palette.len() as u16;
+            palette.push(key);
+            idx
+        });
+        ModelPlacementNet {
+            model_idx,
+            position: p.position,
+            rotation: p.rotation,
+            scale: p.scale,
+            blocks_movement: p.blocks_movement,
+        }
+    }).collect();
+
+    let map_msg = encode_server_message(&ServerMessage::MapData {
+        palette,
+        placements: net_placements,
+    });
+    let _ = socket.send_to(&map_msg, addr);
+}
+
 /// Send a message to all connected players.
 fn broadcast(socket: &UdpSocket, players: &HashMap<SocketAddr, ServerPlayer>, msg: &ServerMessage) {
     let packet = encode_server_message(msg);
@@ -798,3 +1064,4 @@ fn broadcast(socket: &UdpSocket, players: &HashMap<SocketAddr, ServerPlayer>, ms
         let _ = socket.send_to(&packet, player.addr);
     }
 }
+

@@ -12,6 +12,7 @@ use entities::effects::*;
 use entities::player::*;
 use entities::enemy::*;
 use macroquad::prelude::*;
+use egui_macroquad::egui;
 use net::client::NetClient;
 use net::protocol::*;
 use std::collections::BTreeMap;
@@ -39,12 +40,54 @@ pub struct Assets {
 
 #[derive(PartialEq)]
 enum GameState {
-    CharacterCreation,
+    Login,
     Connecting,
+    CharacterSelect,
+    CharacterCreation,
     Playing,
+    Reconnecting,
     HitboxCalibration,
     ClusterEditor,
     GameOver,
+}
+
+/// Apply a dark RPG-styled theme to the egui context.
+fn apply_rpg_egui_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+    // Panel / window backgrounds — nearly invisible, we draw our own
+    visuals.window_fill = egui::Color32::from_rgba_unmultiplied(10, 8, 20, 230);
+    visuals.panel_fill = egui::Color32::TRANSPARENT;
+    visuals.window_stroke = egui::Stroke::NONE;
+    let cr = egui::CornerRadius::same(3);
+    // Inactive widget (unfocused field)
+    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(14, 12, 26);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 58, 95));
+    visuals.widgets.inactive.corner_radius = cr;
+    // Hovered
+    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(22, 18, 40);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(180, 140, 60));
+    visuals.widgets.hovered.corner_radius = cr;
+    // Active / focused text field
+    visuals.widgets.active.bg_fill = egui::Color32::from_rgb(18, 14, 34);
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(210, 165, 45));
+    visuals.widgets.active.corner_radius = cr;
+    // Open (the state egui uses while a text field is being edited)
+    visuals.widgets.open.bg_fill = egui::Color32::from_rgb(18, 14, 34);
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(210, 165, 45));
+    visuals.widgets.open.corner_radius = cr;
+    // Selection highlight (text selection)
+    visuals.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(180, 138, 40, 90);
+    visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 165, 45));
+    // Cursor
+    visuals.text_cursor.stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(220, 175, 55));
+    ctx.set_visuals(visuals);
+    // Slightly larger default text size
+    ctx.style_mut(|s| {
+        s.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::new(16.0, egui::FontFamily::Proportional),
+        );
+    });
 }
 
 async fn load_or_fallback(path: &str, color: Color) -> Texture2D {
@@ -209,9 +252,14 @@ async fn main() {
     let mut enemy_director = EnemyDirector::new(&catalog, config).await;
     let mut combat_text_mgr = ui::combat_text::CombatTextManager::new();
 
-    let mut game_state = GameState::CharacterCreation;
+    let mut game_state = GameState::Login;
     let mut net_client: Option<NetClient> = None;
     let mut server_addr = String::from("127.0.0.1:7878");
+    let mut login_username = String::from("Player");
+    let mut login_error: Option<String> = None;
+    let mut character_list: Vec<net::protocol::CharacterSummaryNet> = Vec::new();
+    let mut char_select_scroll = 0usize;
+    let mut reconnect_timer = 0.0_f32;
     let mut remote_textures: std::collections::HashMap<u64, Vec<Texture2D>> =
         std::collections::HashMap::new();
     let mut remote_anims: std::collections::HashMap<u64, AnimationManager> =
@@ -243,7 +291,151 @@ async fn main() {
         clear_background(DARKGRAY);
         let delta_time = get_frame_time().min(0.05);
 
+        // ── egui UI pass (single call per frame) ──
+        // Capture any values we need back from the closure.
+        let mut egui_login_changed = false;
+        egui_macroquad::ui(|ctx| {
+            apply_rpg_egui_theme(ctx);
+
+            if game_state == GameState::Login {
+                let sw = screen_width();
+                let sh = screen_height();
+                let field_w = 320.0_f32;
+                // Position a transparent, frame-less Area over where the labels + fields go
+                egui::Area::new(egui::Id::new("login_fields"))
+                    .fixed_pos(egui::pos2((sw - field_w) / 2.0, sh / 2.0 - 55.0))
+                    .show(ctx, |ui| {
+                        ui.set_width(field_w);
+                        ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(10, 8, 20);
+
+                        ui.label(egui::RichText::new("Username").color(egui::Color32::from_rgb(180, 170, 210)).size(14.0));
+                        let ur = ui.add(
+                            egui::TextEdit::singleline(&mut login_username)
+                                .desired_width(field_w)
+                                .font(egui::FontId::new(18.0, egui::FontFamily::Proportional))
+                                .hint_text("Enter username…")
+                        );
+                        if ur.changed() { egui_login_changed = true; }
+
+                        ui.add_space(10.0);
+                        ui.label(egui::RichText::new("Server").color(egui::Color32::from_rgb(180, 170, 210)).size(14.0));
+                        let sr = ui.add(
+                            egui::TextEdit::singleline(&mut server_addr)
+                                .desired_width(field_w)
+                                .font(egui::FontId::new(18.0, egui::FontFamily::Proportional))
+                        );
+                        if sr.changed() { egui_login_changed = true; }
+                    });
+            }
+
+            if game_state == GameState::CharacterCreation {
+                let sw = screen_width();
+                // Replicate the layout math from update_and_draw to position the name field
+                let margin = 20.0_f32;
+                let usable_w = sw - margin * 2.0;
+                let panel_left_w = (usable_w * 0.18).max(160.0);
+                let preview_x = margin + panel_left_w + 15.0;
+                let preview_w = (usable_w * 0.28).max(200.0);
+                let name_field_x = preview_x + 10.0;
+                let name_field_y = 70.0 + 28.0; // top_y + offset
+                let name_field_w = preview_w - 20.0;
+
+                egui::Area::new(egui::Id::new("char_name_field"))
+                    .fixed_pos(egui::pos2(name_field_x, name_field_y))
+                    .show(ctx, |ui| {
+                        ui.set_width(name_field_w);
+                        ui.visuals_mut().extreme_bg_color = egui::Color32::from_rgb(10, 8, 20);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut creator.character_name)
+                                .desired_width(name_field_w)
+                                .font(egui::FontId::new(17.0, egui::FontFamily::Proportional))
+                                .hint_text("Enter Name…")
+                        );
+                    });
+            }
+        });
+
+        // ── Character Buffer Management ──
+        // Drain macroquad char buffer in states where egui is handling input,
+        // and in gameplay to prevent WASD leaking into fields.
+        if game_state != GameState::HitboxCalibration {
+            while let Some(_) = get_char_pressed() {}
+        }
+
         match game_state {
+            GameState::Login => {
+                show_mouse(true);
+                let sw = screen_width();
+                let sh = screen_height();
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.06, 0.06, 0.10, 1.0));
+
+                let title = "RPG ENGINE";
+                let tw = measure_text(title, None, 48, 1.0).width;
+                draw_text(title, (sw - tw) / 2.0, sh / 2.0 - 120.0, 48.0, WHITE);
+
+                let subtitle = "Enter your credentials to connect";
+                let stw = measure_text(subtitle, None, 18, 1.0).width;
+                draw_text(subtitle, (sw - stw) / 2.0, sh / 2.0 - 80.0, 18.0, Color::new(0.5, 0.5, 0.7, 1.0));
+
+                let (mx, my) = mouse_position();
+                let clicked = is_mouse_button_pressed(MouseButton::Left);
+
+                // egui renders the Username and Server fields — no manual drawing needed here.
+                // Clear login error when the user edits either field.
+                if egui_login_changed {
+                    login_error = None;
+                }
+
+                // Error message
+                if let Some(ref err) = login_error {
+                    let etw = measure_text(err, None, 18, 1.0).width;
+                    draw_text(err, (sw - etw) / 2.0, sh / 2.0 + 65.0, 18.0, RED);
+                }
+
+                // Connect button
+                let btn_w = 200.0;
+                let btn_h = 45.0;
+                let btn_x = (sw - btn_w) / 2.0;
+                let btn_y = sh / 2.0 + 80.0;
+                let btn_hover = mx >= btn_x && mx <= btn_x + btn_w && my >= btn_y && my <= btn_y + btn_h;
+                draw_rectangle(btn_x, btn_y, btn_w, btn_h, if btn_hover { Color::new(0.2, 0.35, 0.2, 1.0) } else { Color::new(0.12, 0.25, 0.12, 1.0) });
+                draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 2.0, GREEN);
+                let ct = "CONNECT";
+                let ctw = measure_text(ct, None, 24, 1.0).width;
+                draw_text(ct, btn_x + (btn_w - ctw) / 2.0, btn_y + 30.0, 24.0, WHITE);
+
+                if (btn_hover && clicked) || is_key_pressed(KeyCode::Enter) {
+                    if !login_username.is_empty() {
+                        match NetClient::connect(&server_addr, &login_username) {
+                            Ok(client) => {
+                                net_client = Some(client);
+                                game_state = GameState::Connecting;
+                                login_error = None;
+                            }
+                            Err(e) => {
+                                eprintln!("Connection failed: {}", e);
+                                login_error = Some(format!("Connection failed: {}", e));
+                            }
+                        }
+                    } else {
+                        login_error = Some("Please enter a username".to_string());
+                    }
+                }
+
+                // Play Offline button
+                let off_btn_y = btn_y + btn_h + 15.0;
+                let off_btn_hover = mx >= btn_x && mx <= btn_x + btn_w && my >= off_btn_y && my <= off_btn_y + btn_h;
+                draw_rectangle(btn_x, off_btn_y, btn_w, btn_h, if off_btn_hover { Color::new(0.2, 0.2, 0.25, 1.0) } else { Color::new(0.12, 0.12, 0.18, 1.0) });
+                draw_rectangle_lines(btn_x, off_btn_y, btn_w, btn_h, 1.0, GRAY);
+                let ot = "PLAY OFFLINE";
+                let otw = measure_text(ot, None, 20, 1.0).width;
+                draw_text(ot, btn_x + (btn_w - otw) / 2.0, off_btn_y + 30.0, 20.0, LIGHTGRAY);
+
+                if off_btn_hover && clicked {
+                    net_client = None;
+                    game_state = GameState::Playing;
+                }
+            }
             GameState::CharacterCreation => {
                 show_mouse(true);
                 if creator.needs_reload {
@@ -254,10 +446,56 @@ async fn main() {
                     creator.needs_reload = false;
                 }
                 let confirmed = creator.update_and_draw(delta_time);
-                if confirmed {
-                    char_textures =
-                        CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
-                    game_state = GameState::Connecting;
+                if confirmed && !creator.confirmed_already_sent {
+                    if creator.character_name.trim().is_empty() {
+                        creator.error_message = Some("Please enter a character name".to_string());
+                        creator.confirmed = false;
+                    } else {
+                        if let Some(ref nc) = net_client {
+                            let app = &creator.appearance;
+                            let net_app = CharacterAppearanceNet {
+                                skin: app.skin.clone(),
+                                shoes: app.shoes.clone(),
+                                clothes: app.clothes.clone(),
+                                gloves: app.gloves.clone(),
+                                hairstyle: app.hairstyle.clone(),
+                                facial_hair: app.facial_hair.clone(),
+                                eye_color: app.eye_color.clone(),
+                                eyelashes: app.eyelashes.clone(),
+                                headgear: app.headgear.clone(),
+                                addon: app.addon.clone(),
+                            };
+                            nc.send(&ClientMessage::CreateCharacter {
+                                name: creator.character_name.trim().to_string(),
+                                appearance: net_app,
+                            });
+                            creator.confirmed_already_sent = true;
+                            creator.error_message = None;
+                        }
+                    }
+                }
+
+                if creator.confirmed {
+                    if let Some(ref mut nc) = net_client {
+                        nc.update();
+                        if let Some(created) = nc.pending_character_created.take() {
+                            character_list.push(created);
+                            game_state = GameState::CharacterSelect;
+                            creator.confirmed = false;
+                            creator.confirmed_already_sent = false;
+                            creator.character_name.clear();
+                            creator.error_message = None;
+                        }
+                        if let Some(err) = nc.pending_create_error.take() {
+                            eprintln!("Create failed: {}", err);
+                            creator.error_message = Some(format!("Create failed: {}", err));
+                            creator.confirmed = false;
+                            creator.confirmed_already_sent = false;
+                        }
+                    }
+                }
+                if is_key_pressed(KeyCode::Escape) {
+                    game_state = GameState::CharacterSelect;
                 }
             }
             GameState::HitboxCalibration => {
@@ -689,92 +927,136 @@ async fn main() {
                 }
             }
             GameState::Connecting => {
-                // Simple connection screen
                 let sw = screen_width();
                 let sh = screen_height();
-                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.08, 0.08, 0.12, 1.0));
-                draw_text(
-                    "CONNECT TO SERVER",
-                    sw / 2.0 - 140.0,
-                    sh / 2.0 - 60.0,
-                    32.0,
-                    WHITE,
-                );
-                draw_text(
-                    &format!("Address: {}", server_addr),
-                    sw / 2.0 - 140.0,
-                    sh / 2.0 - 20.0,
-                    22.0,
-                    GRAY,
-                );
-                draw_text(
-                    "Press ENTER to connect, or ESCAPE for offline",
-                    sw / 2.0 - 200.0,
-                    sh / 2.0 + 20.0,
-                    18.0,
-                    Color::new(0.6, 0.6, 0.8, 1.0),
-                );
-
-                // Type server address
-                if let Some(c) = get_char_pressed() {
-                    if c.is_ascii() && !c.is_control() {
-                        server_addr.push(c);
-                    }
-                }
-                if is_key_pressed(KeyCode::Backspace) && !server_addr.is_empty() {
-                    server_addr.pop();
-                }
-
-                if is_key_pressed(KeyCode::Enter) && net_client.is_none() {
-                    let app = &creator.appearance;
-                    let net_app = CharacterAppearanceNet {
-                        skin: app.skin.clone(),
-                        shoes: app.shoes.clone(),
-                        clothes: app.clothes.clone(),
-                        gloves: app.gloves.clone(),
-                        hairstyle: app.hairstyle.clone(),
-                        facial_hair: app.facial_hair.clone(),
-                        eye_color: app.eye_color.clone(),
-                        eyelashes: app.eyelashes.clone(),
-                        headgear: app.headgear.clone(),
-                        addon: app.addon.clone(),
-                    };
-                    match NetClient::connect(&server_addr, "Player", net_app) {
-                        Ok(client) => {
-                            net_client = Some(client);
-                        }
-                        Err(e) => {
-                            eprintln!("Connection failed: {}", e);
-                        }
-                    }
-                }
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.06, 0.06, 0.10, 1.0));
 
                 if let Some(ref mut nc) = net_client {
                     nc.update();
-                    draw_text("Waiting for world data...", sw / 2.0 - 100.0, sh / 2.0 + 60.0, 18.0, YELLOW);
-                    
+
+                    if nc.connection_timed_out {
+                        draw_text("CONNECTION FAILED", sw / 2.0 - 130.0, sh / 2.0 - 20.0, 28.0, RED);
+                        draw_text("Server unreachable. Press ENTER to retry or ESC to go back.", sw / 2.0 - 250.0, sh / 2.0 + 20.0, 18.0, GRAY);
+                        if is_key_pressed(KeyCode::Enter) {
+                            match NetClient::connect(&server_addr, &login_username) {
+                                Ok(client) => { net_client = Some(client); }
+                                Err(e) => eprintln!("Retry failed: {}", e),
+                            }
+                        }
+                        if is_key_pressed(KeyCode::Escape) {
+                            net_client = None;
+                            game_state = GameState::Login;
+                        }
+                    } else {
+                        let elapsed = nc.connecting_elapsed();
+                        draw_text("CONNECTING...", sw / 2.0 - 80.0, sh / 2.0 - 20.0, 28.0, WHITE);
+                        draw_text(&format!("{:.1}s", elapsed), sw / 2.0 - 15.0, sh / 2.0 + 15.0, 18.0, YELLOW);
+
+                        // Check for character list response
+                        if let Some(chars) = nc.pending_characters.take() {
+                            character_list = chars;
+                            game_state = GameState::CharacterSelect;
+                        }
+                    }
+                }
+
+                if is_key_pressed(KeyCode::Escape) {
+                    net_client = None;
+                    game_state = GameState::Login;
+                }
+            }
+            GameState::CharacterSelect => {
+                show_mouse(true);
+                let sw = screen_width();
+                let sh = screen_height();
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.06, 0.06, 0.10, 1.0));
+
+                // Poll for updates
+                if let Some(ref mut nc) = net_client {
+                    nc.update();
+                    if let Some(chars) = nc.pending_characters.take() {
+                        character_list = chars;
+                    }
+                    if let Some(created) = nc.pending_character_created.take() {
+                        character_list.push(created);
+                    }
+                    if let Some(del_id) = nc.pending_character_deleted.take() {
+                        character_list.retain(|c| c.id != del_id);
+                    }
+                }
+
+                let title = "CHARACTER SELECT";
+                let tw = measure_text(title, None, 36, 1.0).width;
+                draw_text(title, (sw - tw) / 2.0, 50.0, 36.0, WHITE);
+
+                draw_text(&format!("Logged in as: {}", login_username), 20.0, 50.0, 18.0, Color::new(0.5, 0.5, 0.7, 1.0));
+
+                let (mx, my) = mouse_position();
+                let clicked = is_mouse_button_pressed(MouseButton::Left);
+
+                // Character cards
+                let card_w = 500.0;
+                let card_h = 70.0;
+                let card_x = (sw - card_w) / 2.0;
+                let start_y = 90.0;
+
+                for (i, ch) in character_list.iter().enumerate() {
+                    let cy = start_y + i as f32 * (card_h + 10.0);
+                    let hovered = mx >= card_x && mx <= card_x + card_w && my >= cy && my <= cy + card_h;
+                    let bg = if hovered { Color::new(0.15, 0.18, 0.28, 1.0) } else { Color::new(0.10, 0.10, 0.18, 1.0) };
+                    draw_rectangle(card_x, cy, card_w, card_h, bg);
+                    draw_rectangle_lines(card_x, cy, card_w, card_h, 1.0, if hovered { WHITE } else { Color::new(0.25, 0.25, 0.4, 1.0) });
+
+                    draw_text(&ch.name, card_x + 15.0, cy + 28.0, 22.0, WHITE);
+                    draw_text(&format!("HP: {}/{}", ch.current_hp, ch.max_hp), card_x + 15.0, cy + 50.0, 16.0, Color::new(0.4, 0.8, 0.4, 1.0));
+                    draw_text(&format!("MP: {}/{}", ch.current_mp, ch.max_mp), card_x + 160.0, cy + 50.0, 16.0, Color::new(0.4, 0.6, 0.9, 1.0));
+
+                    // Delete button
+                    let del_x = card_x + card_w - 80.0;
+                    let del_y = cy + 10.0;
+                    let del_hover = mx >= del_x && mx <= del_x + 65.0 && my >= del_y && my <= del_y + 25.0;
+                    draw_rectangle(del_x, del_y, 65.0, 25.0, if del_hover { Color::new(0.5, 0.1, 0.1, 1.0) } else { Color::new(0.3, 0.08, 0.08, 1.0) });
+                    draw_text("Delete", del_x + 8.0, del_y + 18.0, 14.0, RED);
+                    if del_hover && clicked {
+                        if let Some(ref nc) = net_client {
+                            nc.send(&ClientMessage::DeleteCharacter { character_id: ch.id });
+                        }
+                    }
+
+                    // Select on click (not on delete button)
+                    if hovered && clicked && !del_hover {
+                        if let Some(ref nc) = net_client {
+                            nc.send(&ClientMessage::SelectCharacter { character_id: ch.id });
+                        }
+                    }
+                }
+
+                // "Create New" button
+                let new_y = start_y + character_list.len() as f32 * (card_h + 10.0) + 10.0;
+                let new_hover = mx >= card_x && mx <= card_x + card_w && my >= new_y && my <= new_y + 50.0;
+                draw_rectangle(card_x, new_y, card_w, 50.0, if new_hover { Color::new(0.12, 0.25, 0.12, 1.0) } else { Color::new(0.08, 0.15, 0.08, 1.0) });
+                draw_rectangle_lines(card_x, new_y, card_w, 50.0, 2.0, GREEN);
+                let nt = "+ CREATE NEW CHARACTER";
+                let ntw = measure_text(nt, None, 22, 1.0).width;
+                draw_text(nt, card_x + (card_w - ntw) / 2.0, new_y + 32.0, 22.0, GREEN);
+
+                if new_hover && clicked {
+                    creator.reset();
+                    creator.needs_reload = true;
+                    game_state = GameState::CharacterCreation;
+                }
+
+                // Check if server accepted a character selection (JoinAccepted + MapData)
+                if let Some(ref mut nc) = net_client {
                     if nc.connected && nc.pending_map.is_some() {
                         let (palette, placements) = nc.pending_map.take().unwrap();
-                        println!(
-                            "[CLIENT] Building world from server placements ({})...",
-                            placements.len()
-                        );
-
-                        world_env =
-                            world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false)
-                                .await;
+                        println!("[CLIENT] Building world from server placements ({})...", placements.len());
+                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
                         for p in placements {
                             let (model_name, file_name) = &palette[p.model_idx as usize];
                             if !world_env.sim.templates.contains_key(model_name) {
-                                if let Some(template) = world::environment::load_glb_template(
-                                    &format!("assets/world_models/{}", file_name),
-                                )
-                                .await
-                                {
-                                    world_env
-                                        .sim
-                                        .templates
-                                        .insert(model_name.clone(), template);
+                                if let Some(template) = world::environment::load_glb_template(&format!("assets/world_models/{}", file_name)).await {
+                                    world_env.sim.templates.insert(model_name.clone(), template);
                                 }
                             }
                             let sim_p = world::cluster::ModelPlacement {
@@ -787,12 +1069,72 @@ async fn main() {
                             };
                             world_env.add_placement(&sim_p, &hitbox_config);
                         }
+                        char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
+                        game_state = GameState::Playing;
+                    }
+                }
+
+                // Logout
+                if is_key_pressed(KeyCode::Escape) {
+                    if let Some(ref nc) = net_client { nc.disconnect(); }
+                    net_client = None;
+                    game_state = GameState::Login;
+                }
+            }
+            GameState::Reconnecting => {
+                let sw = screen_width();
+                let sh = screen_height();
+                draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.05, 0.0, 0.0, 0.85));
+
+                if let Some(ref nc) = net_client {
+                    let attempt = nc.reconnect_attempts;
+                    let max = nc.max_reconnect_attempts;
+                    draw_text("CONNECTION LOST", sw / 2.0 - 120.0, sh / 2.0 - 40.0, 32.0, RED);
+                    draw_text(&format!("Reconnecting... (attempt {}/{})", attempt, max), sw / 2.0 - 150.0, sh / 2.0 + 10.0, 20.0, YELLOW);
+                }
+
+                reconnect_timer -= delta_time;
+                if reconnect_timer <= 0.0 {
+                    reconnect_timer = 3.0;
+                    if let Some(ref mut nc) = net_client {
+                        if nc.reconnect_attempts >= nc.max_reconnect_attempts {
+                            // Give up
+                            draw_text("Unable to reconnect.", sw / 2.0 - 100.0, sh / 2.0 + 50.0, 20.0, GRAY);
+                            net_client = None;
+                            game_state = GameState::Login;
+                        } else {
+                            let _ = nc.reconnect();
+                        }
+                    }
+                }
+
+                // Check if reconnected
+                if let Some(ref mut nc) = net_client {
+                    nc.update();
+                    if nc.connected && nc.pending_map.is_some() {
+                        let (palette, placements) = nc.pending_map.take().unwrap();
+                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
+                        for p in placements {
+                            let (model_name, file_name) = &palette[p.model_idx as usize];
+                            if !world_env.sim.templates.contains_key(model_name) {
+                                if let Some(template) = world::environment::load_glb_template(&format!("assets/world_models/{}", file_name)).await {
+                                    world_env.sim.templates.insert(model_name.clone(), template);
+                                }
+                            }
+                            let sim_p = world::cluster::ModelPlacement {
+                                model: model_name.clone(), file: file_name.clone(),
+                                position: p.position, rotation: p.rotation,
+                                scale: p.scale, blocks_movement: p.blocks_movement,
+                            };
+                            world_env.add_placement(&sim_p, &hitbox_config);
+                        }
                         game_state = GameState::Playing;
                     }
                 }
 
                 if is_key_pressed(KeyCode::Escape) {
-                    game_state = GameState::Playing; // Offline mode
+                    net_client = None;
+                    game_state = GameState::Login;
                 }
             }
             GameState::ClusterEditor => {
@@ -878,7 +1220,7 @@ async fn main() {
             }
             GameState::Playing => {
                 if is_key_pressed(KeyCode::C) {
-                    creator.confirmed = false;
+                    creator.reset();
                     game_state = GameState::CharacterCreation;
                     continue;
                 }
@@ -897,6 +1239,12 @@ async fn main() {
                 // Network update
                 if let Some(ref mut client) = net_client {
                     client.update();
+
+                    // Detect disconnect → transition to reconnect
+                    if client.server_lost {
+                        reconnect_timer = 0.0; // try immediately
+                        game_state = GameState::Reconnecting;
+                    }
 
                     // Load textures for newly joined remote players
                     let new_players: Vec<(u64, CharacterAppearanceNet)> = client
@@ -1650,10 +1998,12 @@ async fn main() {
                 draw_text("RESTART", btn_x + 75.0, btn_y + 35.0, 28.0, WHITE);
                 
                 if hovered && is_mouse_button_pressed(MouseButton::Left) {
-                    // Close connection and restart
+                    // Disconnect cleanly → back to login
+                    if let Some(ref nc) = net_client {
+                        nc.disconnect();
+                    }
                     net_client = None;
-                    creator.confirmed = false;
-                    game_state = GameState::CharacterCreation;
+                    game_state = GameState::Login;
                     
                     // Reset hero
                     hero.is_dead = false;
@@ -1667,6 +2017,9 @@ async fn main() {
                 }
             }
         }
+
+        // ── Render egui on top of everything ──
+        egui_macroquad::draw();
 
         next_frame().await
     }

@@ -13,6 +13,9 @@ pub struct CharacterCreator {
     pub confirmed: bool,
     pub needs_reload: bool,
     pub scroll_offset: usize, // Scroll position for the options panel
+    pub character_name: String,
+    pub confirmed_already_sent: bool,
+    pub error_message: Option<String>,
 }
 
 impl CharacterCreator {
@@ -35,6 +38,9 @@ impl CharacterCreator {
             confirmed: false,
             needs_reload: true,
             scroll_offset: 0,
+            character_name: String::new(),
+            confirmed_already_sent: false,
+            error_message: None,
         }
     }
 
@@ -208,7 +214,15 @@ impl CharacterCreator {
             Color::new(0.6, 0.6, 0.8, 1.0),
         );
 
+        // Character name input is handled by egui (see main.rs egui UI pass).
+        // Clear the error message if the name changes between frames.
+        // (The actual field is drawn via egui::Area "char_name_field" in main.rs.)
+        // We still need a placeholder rect so the preview stays positioned correctly.
+        let name_field_y = top_y + 28.0;
+        let name_field_h = 30.0;
+
         // Preview is South/Idle by default
+        let preview_draw_y = name_field_y + name_field_h + 10.0;
         self.preview_anim.state = AnimationState::Idle;
         self.preview_anim.direction = Direction::South;
         self.preview_anim.update(dt, 1.0, 1.0);
@@ -216,7 +230,6 @@ impl CharacterCreator {
         // Draw each layer stacked
         let preview_size = (preview_w - 60.0).min(sh * 0.3); // Scale with panel, cap at 30% screen height
         let preview_draw_x = preview_x + (preview_w - preview_size) / 2.0;
-        let preview_draw_y = top_y + 35.0;
 
         for tex in &self.preview_textures {
             let src = self.preview_anim.get_source_rect(tex.width(), tex.height());
@@ -431,6 +444,12 @@ impl CharacterCreator {
             hovered && clicked
         };
 
+        // --- Error Message ---
+        if let Some(ref msg) = self.error_message {
+            let tw = measure_text(msg, None, 20, 1.0).width;
+            draw_text(msg, (sw - tw) / 2.0, btn_y - 20.0, 20.0, RED);
+        }
+
         // RANDOMIZE
         let randomize_clicked = draw_button(
             start_x,
@@ -462,7 +481,7 @@ impl CharacterCreator {
             mx,
             my,
             clicked,
-        );
+        ) || is_key_pressed(KeyCode::Enter);
 
         if randomize_clicked {
             self.randomize();
@@ -522,9 +541,12 @@ impl CharacterCreator {
         self.scroll_offset = 0;
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.selected_indices = [None; 10];
         self.selected_indices[0] = Some(0); // Default first skin
         self.scroll_offset = 0;
+        self.character_name.clear();
+        self.confirmed_already_sent = false;
+        self.error_message = None;
     }
 }
