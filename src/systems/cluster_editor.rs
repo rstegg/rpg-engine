@@ -2,24 +2,23 @@ use std::collections::HashMap;
 
 use macroquad::prelude::*;
 
+use crate::world::chunk::CHUNK_SIZE_M;
 use crate::world::cluster::{BIOMES, BiomeRegion, MapDocument, ModelPlacement};
 use crate::world::environment::{GltfTemplate, instantiate};
+use egui_macroquad::egui;
 
 const MODEL_DIR: &str = "assets/world_models";
+const CLUSTER_DIR: &str = "assets/clusters";
 const SAVE_PATH: &str = "assets/maps/dev_map.json";
-const TOOLBAR_WIDTH: f32 = 112.0;
-const TOOL_BUTTON_X: f32 = 10.0;
-const TOOL_BUTTON_W: f32 = 92.0;
-const TOOL_BUTTON_H: f32 = 32.0;
 const SIDEBAR_WIDTH: f32 = 300.0;
-const STATUS_HEIGHT: f32 = 32.0;
-const ROW_HEIGHT: f32 = 24.0;
+const TOOLBAR_WIDTH: f32 = 180.0;
 const SCALE_STEP: f32 = 0.25;
 const MIN_OBJECT_SCALE: f32 = 0.25;
 const MAX_OBJECT_SCALE: f32 = 10.0;
 const ROTATION_STEP: f32 = std::f32::consts::FRAC_PI_2;
 const GRID_STEP: f32 = 2.0;
-const SETTINGS_TOGGLE_Y: f32 = 210.0;
+const CHUNK_BORDER_INSET: f32 = 0.0;
+const CHUNK_BORDER_EPSILON: f32 = 0.01;
 
 #[derive(Clone)]
 pub struct ModelAsset {
@@ -76,11 +75,11 @@ pub struct ClusterEditor {
     drag_start_pos: Vec3,
     drag_original_positions: Vec<Vec3>,
     // UI state
-    left_collapsed: bool,
-    right_collapsed: bool,
     active_tab: EditorTab,
     load_default_armed: bool,
     clear_all_armed: bool,
+    cluster_catalog: Vec<String>,
+    cluster_scroll: usize,
 }
 
 impl ClusterEditor {
@@ -111,11 +110,11 @@ impl ClusterEditor {
             is_dragging: false,
             drag_start_pos: Vec3::ZERO,
             drag_original_positions: Vec::new(),
-            left_collapsed: false,
-            right_collapsed: false,
             active_tab: EditorTab::Assets,
             load_default_armed: false,
             clear_all_armed: false,
+            cluster_catalog: discover_clusters(),
+            cluster_scroll: 0,
         };
         editor.rebuild_camera();
         editor
@@ -127,6 +126,35 @@ impl ClusterEditor {
 
     pub fn selected_asset(&self) -> Option<&ModelAsset> {
         self.catalog.get(self.selected_model)
+    }
+
+    pub fn missing_template_assets(
+        &self,
+        templates: &HashMap<String, GltfTemplate>,
+    ) -> Vec<ModelAsset> {
+        let mut missing = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for placement in self.all_placements() {
+            if templates.contains_key(&placement.model) || !seen.insert(placement.model.clone()) {
+                continue;
+            }
+
+            let asset = self
+                .catalog
+                .iter()
+                .find(|asset| asset.key == placement.model || asset.file == placement.file)
+                .cloned()
+                .unwrap_or_else(|| ModelAsset {
+                    key: placement.model.clone(),
+                    file: placement.file.clone(),
+                    path: format!("{MODEL_DIR}/{}", placement.file),
+                });
+
+            missing.push(asset);
+        }
+
+        missing
     }
 
     pub fn playtest_start(&self) -> Vec3 {
@@ -163,7 +191,7 @@ impl ClusterEditor {
         Some(vec3(point.x, 0.0, point.z))
     }
 
-    pub fn update(&mut self) -> EditorAction {
+    pub fn update(&mut self, egui_capturing: bool) -> EditorAction {
         if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F3) {
             return EditorAction::Exit;
         }
@@ -171,7 +199,6 @@ impl ClusterEditor {
             return EditorAction::PlayTest;
         }
 
-        self.update_ui_state();
         if self.play_button_armed {
             self.play_button_armed = false;
             return EditorAction::PlayTest;
@@ -232,7 +259,7 @@ impl ClusterEditor {
             self.group_selection();
         }
 
-        if !self.pointer_over_panel() {
+        if !egui_capturing {
             match self.tool {
                 EditorTool::Objects => self.update_objects(),
                 EditorTool::Biomes => self.update_biomes(),
@@ -277,303 +304,207 @@ impl ClusterEditor {
         }
     }
 
-    pub fn draw_ui(&self, template_loaded: bool) {
-        let sw = screen_width();
-        let sh = screen_height();
-
+    pub fn draw_egui(&mut self, ctx: &egui::Context, template_loaded: bool) {
         // 1. Left Toolbar
-        let left_w = if self.left_collapsed {
-            12.0
-        } else {
-            TOOLBAR_WIDTH
-        };
-        draw_rectangle(0.0, 0.0, left_w, sh, Color::new(0.12, 0.12, 0.12, 1.0));
-        draw_line(left_w, 0.0, left_w, sh, 1.0, GRAY);
-        if !self.left_collapsed {
-            self.draw_tool_button(
-                TOOL_BUTTON_X,
-                40.0,
-                "Select",
-                self.tool == EditorTool::Select,
-            );
-            self.draw_tool_button(
-                TOOL_BUTTON_X,
-                80.0,
-                "Object",
-                self.tool == EditorTool::Objects,
-            );
-            self.draw_tool_button(
-                TOOL_BUTTON_X,
-                120.0,
-                "Biome",
-                self.tool == EditorTool::Biomes,
-            );
-            self.draw_tool_button(TOOL_BUTTON_X, sh - 120.0, "Save", false);
-            self.draw_tool_button(TOOL_BUTTON_X, sh - 160.0, "Play", false);
-            self.draw_tool_button(TOOL_BUTTON_X, sh - 200.0, "Clear", false);
-            self.draw_tool_button(TOOL_BUTTON_X, sh - 240.0, "Default", false);
-        }
-        draw_text(
-            if self.left_collapsed { ">" } else { "<" },
-            2.0,
-            sh - 20.0,
-            20.0,
-            WHITE,
-        );
+        egui::SidePanel::left("editor_toolbar")
+            .resizable(false)
+            .default_width(TOOLBAR_WIDTH)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    ui.heading("Tools");
+                    ui.add_space(10.0);
+
+                    if ui.selectable_label(self.tool == EditorTool::Select, "Select").clicked() {
+                        self.tool = EditorTool::Select;
+                    }
+                    if ui.selectable_label(self.tool == EditorTool::Objects, "Object").clicked() {
+                        self.tool = EditorTool::Objects;
+                    }
+                    if ui.selectable_label(self.tool == EditorTool::Biomes, "Biome").clicked() {
+                        self.tool = EditorTool::Biomes;
+                    }
+
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                        ui.add_space(10.0);
+                        if ui.button("Default").clicked() {
+                            self.load_default_armed = true;
+                        }
+                        if ui.button("Clear").clicked() {
+                            self.clear_map();
+                            self.clear_all_armed = true;
+                        }
+                        if ui.button("Play").clicked() {
+                            self.play_button_armed = true;
+                        }
+                        if ui.button("Save").clicked() {
+                            self.save();
+                        }
+                        ui.add_space(10.0);
+
+                        // Inspector
+                        if self.selected_placements.len() == 1 {
+                            ui.separator();
+                            ui.add_space(10.0);
+                            ui.heading("Inspector");
+                            ui.add_space(5.0);
+                            
+                            let (c_idx, p_idx) = self.selected_placements[0];
+                            if let Some(p) = self.map.clusters.get_mut(c_idx).and_then(|c| c.placements.get_mut(p_idx)) {
+                                ui.horizontal(|ui| {
+                                    ui.label("Model:");
+                                    ui.label(egui::RichText::new(&p.model).color(egui::Color32::YELLOW));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("File:");
+                                    ui.label(egui::RichText::new(&p.file).small());
+                                });
+                                
+                                ui.add_space(5.0);
+                                ui.label("Position:");
+                                ui.horizontal(|ui| {
+                                    ui.label("X");
+                                    ui.add(egui::DragValue::new(&mut p.position[0]).speed(0.1));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Y");
+                                    ui.add(egui::DragValue::new(&mut p.position[1]).speed(0.1));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Z");
+                                    ui.add(egui::DragValue::new(&mut p.position[2]).speed(0.1));
+                                });
+
+                                ui.add_space(5.0);
+                                ui.horizontal(|ui| {
+                                    ui.label("Rotation:");
+                                    ui.add(egui::DragValue::new(&mut p.rotation).speed(0.05));
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Scale:");
+                                    ui.add(egui::DragValue::new(&mut p.scale).speed(0.05).range(0.1..=10.0));
+                                });
+
+                                if ui.button("Delete").clicked() {
+                                    if let Some(c) = self.map.clusters.get_mut(c_idx) {
+                                        c.placements.remove(p_idx);
+                                    }
+                                    self.selected_placements.clear();
+                                }
+                            }
+                        } else if self.selected_placements.len() > 1 {
+                            ui.separator();
+                            ui.add_space(10.0);
+                            ui.label(format!("{} selected", self.selected_placements.len()));
+                            if ui.button("Delete All").clicked() {
+                                let mut indices = self.selected_placements.clone();
+                                indices.sort_unstable_by(|a, b| b.cmp(a));
+                                for (c_idx, p_idx) in indices {
+                                    if let Some(c) = self.map.clusters.get_mut(c_idx) {
+                                        c.placements.remove(p_idx);
+                                    }
+                                }
+                                self.selected_placements.clear();
+                            }
+                        }
+                    });
+                });
+            });
 
         // 2. Right Sidebar
-        let right_w = if self.right_collapsed {
-            12.0
-        } else {
-            SIDEBAR_WIDTH
-        };
-        draw_rectangle(
-            sw - right_w,
-            0.0,
-            right_w,
-            sh,
-            Color::new(0.12, 0.12, 0.12, 1.0),
-        );
-        draw_line(sw - right_w, 0.0, sw - right_w, sh, 1.0, GRAY);
-        if !self.right_collapsed {
-            let rx = sw - SIDEBAR_WIDTH;
-            self.draw_tab(
-                rx,
-                0.0,
-                100.0,
-                "Assets",
-                self.active_tab == EditorTab::Assets,
-            );
-            self.draw_tab(
-                rx + 100.0,
-                0.0,
-                100.0,
-                "Clusters",
-                self.active_tab == EditorTab::Clusters,
-            );
-            self.draw_tab(
-                rx + 200.0,
-                0.0,
-                100.0,
-                "Settings",
-                self.active_tab == EditorTab::Settings,
-            );
-            match self.active_tab {
-                EditorTab::Assets => self.draw_assets_tab(rx, template_loaded),
-                EditorTab::Clusters => self.draw_clusters_tab(rx),
-                EditorTab::Settings => self.draw_settings_tab(rx),
-            }
-        }
-        draw_text(
-            if self.right_collapsed { "<" } else { ">" },
-            sw - 10.0,
-            sh - 20.0,
-            20.0,
-            WHITE,
-        );
+        egui::SidePanel::right("editor_sidebar")
+            .resizable(true)
+            .default_width(SIDEBAR_WIDTH)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.active_tab, EditorTab::Assets, "Assets");
+                    ui.selectable_value(&mut self.active_tab, EditorTab::Clusters, "Clusters");
+                    ui.selectable_value(&mut self.active_tab, EditorTab::Settings, "Settings");
+                });
 
-        // 3. Status Bar
-        draw_rectangle(
-            left_w,
-            sh - STATUS_HEIGHT,
-            sw - left_w - right_w,
-            STATUS_HEIGHT,
-            Color::new(0.08, 0.08, 0.08, 1.0),
-        );
-        draw_line(
-            left_w,
-            sh - STATUS_HEIGHT,
-            sw - right_w,
-            sh - STATUS_HEIGHT,
-            1.0,
-            GRAY,
-        );
-        draw_text(&self.status, left_w + 10.0, sh - 12.0, 14.0, GREEN);
-        let tool_name = match self.tool {
-            EditorTool::Objects => "Object Paint",
-            EditorTool::Biomes => "Biome Brush",
-            EditorTool::Select => "Selection Tool",
-        };
-        draw_text(
-            &format!("Tool: {}", tool_name),
-            sw - right_w - 180.0,
-            sh - 12.0,
-            14.0,
-            LIGHTGRAY,
-        );
-    }
+                ui.separator();
 
-    fn draw_tool_button(&self, x: f32, y: f32, label: &str, active: bool) {
-        let color = if active {
-            Color::new(0.3, 0.3, 0.4, 1.0)
-        } else {
-            Color::new(0.2, 0.2, 0.2, 1.0)
-        };
-        draw_rectangle(x, y, TOOL_BUTTON_W, TOOL_BUTTON_H, color);
-        draw_rectangle_lines(x, y, TOOL_BUTTON_W, TOOL_BUTTON_H, 1.0, GRAY);
-        draw_text(label, x + 8.0, y + 21.0, 16.0, WHITE);
-    }
+                match self.active_tab {
+                    EditorTab::Assets => {
+                        ui.label("Search:");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.search_text)
+                                .hint_text("Filter assets...")
+                                .desired_width(ui.available_width()),
+                        );
+                        if response.changed() {
+                            self.list_scroll = 0;
+                        }
+                        self.search_focused = response.has_focus();
 
-    fn draw_tab(&self, x: f32, y: f32, w: f32, label: &str, active: bool) {
-        let color = if active {
-            Color::new(0.2, 0.2, 0.2, 1.0)
-        } else {
-            Color::new(0.1, 0.1, 0.1, 1.0)
-        };
-        draw_rectangle(x, y, w, 40.0, color);
-        draw_line(x, y + 40.0, x + w, y + 40.0, 1.0, GRAY);
-        draw_text(
-            label,
-            x + 10.0,
-            y + 25.0,
-            16.0,
-            if active { WHITE } else { GRAY },
-        );
-    }
+                        if let Some(asset) = self.selected_asset() {
+                            let state = if template_loaded { "loaded" } else { "loading" };
+                            ui.colored_label(egui::Color32::from_rgb(255, 255, 0), format!("Active: {} ({})", asset.file, state));
+                        }
 
-    fn draw_assets_tab(&self, rx: f32, template_loaded: bool) {
-        draw_text("Search:", rx + 10.0, 60.0, 14.0, GRAY);
-        let search_color = if self.search_focused {
-            Color::new(0.18, 0.18, 0.18, 1.0)
-        } else {
-            Color::new(0.1, 0.1, 0.1, 1.0)
-        };
-        draw_rectangle(rx + 10.0, 70.0, SIDEBAR_WIDTH - 20.0, 24.0, search_color);
-        draw_rectangle_lines(rx + 10.0, 70.0, SIDEBAR_WIDTH - 20.0, 24.0, 1.0, GRAY);
-        draw_text(&self.search_text, rx + 15.0, 86.0, 14.0, WHITE);
-        if let Some(asset) = self.selected_asset() {
-            let state = if template_loaded { "loaded" } else { "loading" };
-            draw_text(
-                &format!("Active: {} ({})", asset.file, state),
-                rx + 10.0,
-                110.0,
-                12.0,
-                YELLOW,
-            );
-        }
-        let list_y = 125.0;
-        let filtered: Vec<_> = self
-            .catalog
-            .iter()
-            .filter(|a| {
-                a.key
-                    .to_lowercase()
-                    .contains(&self.search_text.to_lowercase())
-                    || a.file
-                        .to_lowercase()
-                        .contains(&self.search_text.to_lowercase())
-            })
-            .collect();
-        let visible_rows = ((screen_height() - list_y - 20.0) / ROW_HEIGHT) as usize;
-        for i in 0..visible_rows {
-            let idx = i + self.list_scroll;
-            if idx >= filtered.len() {
-                break;
-            }
-            let y = list_y + i as f32 * ROW_HEIGHT;
-            let is_selected = self
-                .selected_asset()
-                .map(|a| a.key == filtered[idx].key)
-                .unwrap_or(false);
-            if is_selected {
-                draw_rectangle(
-                    rx + 5.0,
-                    y,
-                    SIDEBAR_WIDTH - 10.0,
-                    ROW_HEIGHT,
-                    Color::new(0.35, 0.18, 0.04, 1.0),
-                );
-            }
-            draw_text(
-                &truncate_label(&filtered[idx].file, 30),
-                rx + 10.0,
-                y + 16.0,
-                14.0,
-                WHITE,
-            );
-        }
-    }
+                        ui.separator();
 
-    fn draw_clusters_tab(&self, rx: f32) {
-        draw_text("Clusters:", rx + 10.0, 60.0, 16.0, WHITE);
-        for (i, cluster) in self.map.clusters.iter().enumerate() {
-            let y = 80.0 + i as f32 * ROW_HEIGHT;
-            draw_text(
-                &format!("{}: {} objects", cluster.name, cluster.placements.len()),
-                rx + 10.0,
-                y + 16.0,
-                14.0,
-                LIGHTGRAY,
-            );
-        }
-    }
+                        let filtered: Vec<_> = self.catalog.iter().enumerate().filter(|(_, a)| {
+                            a.key.to_lowercase().contains(&self.search_text.to_lowercase()) ||
+                            a.file.to_lowercase().contains(&self.search_text.to_lowercase())
+                        }).collect();
 
-    fn draw_settings_tab(&self, rx: f32) {
-        draw_text("Properties:", rx + 10.0, 60.0, 16.0, WHITE);
-        draw_text(
-            &format!("Scale: {:.2}", self.scale),
-            rx + 10.0,
-            90.0,
-            14.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            &format!("Rotation: {:.1}", self.rotation),
-            rx + 10.0,
-            110.0,
-            14.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            &format!("Brush: {:.1}", self.brush_radius),
-            rx + 10.0,
-            130.0,
-            14.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            &format!(
-                "Grid Snap: {} (G)",
-                if self.grid_snap_enabled { "On" } else { "Off" }
-            ),
-            rx + 10.0,
-            150.0,
-            14.0,
-            LIGHTGRAY,
-        );
-        draw_text(
-            &format!("Grid Step: {:.2}", GRID_STEP),
-            rx + 10.0,
-            170.0,
-            14.0,
-            LIGHTGRAY,
-        );
-        draw_text("Rotate: R/T", rx + 10.0, 190.0, 14.0, LIGHTGRAY);
-        self.draw_toggle_button(
-            rx + 10.0,
-            SETTINGS_TOGGLE_Y,
-            SIDEBAR_WIDTH - 20.0,
-            "Grid Placement",
-            self.grid_snap_enabled,
-        );
-    }
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for (orig_idx, asset) in filtered {
+                                let is_selected = self.selected_model == orig_idx;
+                                if ui.selectable_label(is_selected, &asset.file).clicked() {
+                                    self.selected_model = orig_idx;
+                                    self.tool = EditorTool::Objects;
+                                    self.status = format!("Selected {}.", asset.file);
+                                }
+                            }
+                        });
+                    }
+                    EditorTab::Clusters => {
+                        ui.heading("Clusters");
+                        if ui.button("SAVE ACTIVE AS FILE").clicked() {
+                            self.save_active_cluster();
+                        }
+                        ui.separator();
+                        ui.label("Available Files:");
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            let mut to_load = None;
+                            for cluster in &self.cluster_catalog {
+                                if ui.button(cluster).clicked() {
+                                    to_load = Some(cluster.clone());
+                                }
+                            }
+                            if let Some(name) = to_load {
+                                self.load_cluster(&name);
+                            }
+                        });
+                    }
+                    EditorTab::Settings => {
+                        ui.heading("Properties");
+                        ui.label(format!("Scale: {:.2}", self.scale));
+                        ui.label(format!("Rotation: {:.1}", self.rotation));
+                        ui.label(format!("Brush: {:.1}", self.brush_radius));
+                        ui.checkbox(&mut self.grid_snap_enabled, "Grid Snap (G)");
+                        ui.label(format!("Grid Step: {:.2}", GRID_STEP));
+                        ui.label("Rotate: R/T");
+                    }
+                }
+            });
 
-    fn draw_toggle_button(&self, x: f32, y: f32, w: f32, label: &str, enabled: bool) {
-        let bg = if enabled {
-            Color::new(0.16, 0.28, 0.18, 1.0)
-        } else {
-            Color::new(0.15, 0.15, 0.15, 1.0)
-        };
-        draw_rectangle(x, y, w, 28.0, bg);
-        draw_rectangle_lines(x, y, w, 28.0, 1.0, GRAY);
-        draw_text(label, x + 8.0, y + 18.0, 15.0, WHITE);
-        draw_text(
-            if enabled { "ON" } else { "OFF" },
-            x + w - 34.0,
-            y + 18.0,
-            15.0,
-            if enabled { GREEN } else { LIGHTGRAY },
-        );
+        // 3. Status Bar (Bottom)
+        egui::TopBottomPanel::bottom("editor_status").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(0, 255, 0), &self.status);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let tool_name = match self.tool {
+                        EditorTool::Objects => "Object Paint",
+                        EditorTool::Biomes => "Biome Brush",
+                        EditorTool::Select => "Selection Tool",
+                    };
+                    ui.label(format!("Tool: {}", tool_name));
+                });
+            });
+        });
     }
 
     fn update_camera(&mut self) {
@@ -605,183 +536,6 @@ impl ClusterEditor {
         }
 
         self.rebuild_camera();
-    }
-    fn update_ui_state(&mut self) {
-        let (mx, my) = mouse_position();
-        let sw = screen_width();
-        let sh = screen_height();
-
-        if is_mouse_button_pressed(MouseButton::Left) {
-            let left_w = if self.left_collapsed {
-                12.0
-            } else {
-                TOOLBAR_WIDTH
-            };
-            if mx < left_w && my > sh - 40.0 {
-                self.left_collapsed = !self.left_collapsed;
-                return;
-            }
-            let right_w = if self.right_collapsed {
-                12.0
-            } else {
-                SIDEBAR_WIDTH
-            };
-            if mx > sw - right_w && my > sh - 40.0 {
-                self.right_collapsed = !self.right_collapsed;
-                return;
-            }
-        }
-
-        if !self.pointer_over_panel() {
-            self.search_focused = false;
-        } else {
-            if is_mouse_button_pressed(MouseButton::Left) {
-                if !self.left_collapsed && mx < TOOLBAR_WIDTH {
-                    if rect_contains(TOOL_BUTTON_X, 40.0, TOOL_BUTTON_W, TOOL_BUTTON_H, (mx, my)) {
-                        self.tool = EditorTool::Select;
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        80.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.tool = EditorTool::Objects;
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        120.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.tool = EditorTool::Biomes;
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        sh - 120.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.save();
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        sh - 160.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.play_button_armed = true;
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        sh - 200.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.clear_map();
-                        self.clear_all_armed = true;
-                    } else if rect_contains(
-                        TOOL_BUTTON_X,
-                        sh - 240.0,
-                        TOOL_BUTTON_W,
-                        TOOL_BUTTON_H,
-                        (mx, my),
-                    ) {
-                        self.load_default_armed = true;
-                    }
-                }
-                if !self.right_collapsed && mx > sw - SIDEBAR_WIDTH {
-                    let rx = mx - (sw - SIDEBAR_WIDTH);
-                    if my < 40.0 {
-                        if rx < 100.0 {
-                            self.active_tab = EditorTab::Assets;
-                        } else if rx < 200.0 {
-                            self.active_tab = EditorTab::Clusters;
-                        } else {
-                            self.active_tab = EditorTab::Settings;
-                        }
-                    } else if self.active_tab == EditorTab::Assets {
-                        self.search_focused = rect_contains(
-                            sw - SIDEBAR_WIDTH + 10.0,
-                            70.0,
-                            SIDEBAR_WIDTH - 20.0,
-                            24.0,
-                            (mx, my),
-                        );
-                        if !self.search_focused && my > 125.0 {
-                            self.click_model_list_right();
-                        }
-                    } else if self.active_tab == EditorTab::Settings
-                        && rect_contains(
-                            sw - SIDEBAR_WIDTH + 10.0,
-                            SETTINGS_TOGGLE_Y,
-                            SIDEBAR_WIDTH - 20.0,
-                            28.0,
-                            (mx, my),
-                        )
-                    {
-                        self.grid_snap_enabled = !self.grid_snap_enabled;
-                        self.status = if self.grid_snap_enabled {
-                            format!("Grid snap enabled ({GRID_STEP:.2}m).")
-                        } else {
-                            String::from("Grid snap disabled.")
-                        };
-                    }
-                }
-            }
-        }
-
-        if self.search_focused {
-            while let Some(c) = get_char_pressed() {
-                if c.is_ascii() && !c.is_control() {
-                    self.search_text.push(c);
-                    self.list_scroll = 0;
-                }
-            }
-            if is_key_pressed(KeyCode::Backspace) {
-                self.search_text.pop();
-            }
-        }
-
-        let (_, wheel_y) = mouse_wheel();
-        if wheel_y.abs() > 0.01 && self.pointer_over_panel() && mx > sw - SIDEBAR_WIDTH {
-            if wheel_y < 0.0 {
-                self.list_scroll = self.list_scroll.saturating_add(3);
-            } else {
-                self.list_scroll = self.list_scroll.saturating_sub(3);
-            }
-        }
-    }
-
-    fn click_model_list_right(&mut self) {
-        let (mx, my) = mouse_position();
-        let sw = screen_width();
-        let list_y = 125.0;
-        let rx = mx - (sw - SIDEBAR_WIDTH);
-        if rx > 10.0 && rx < SIDEBAR_WIDTH - 10.0 && my > list_y {
-            let row = ((my - list_y) / ROW_HEIGHT) as usize;
-            let idx = row + self.list_scroll;
-            let filtered: Vec<_> = self
-                .catalog
-                .iter()
-                .filter(|a| {
-                    a.key
-                        .to_lowercase()
-                        .contains(&self.search_text.to_lowercase())
-                        || a.file
-                            .to_lowercase()
-                            .contains(&self.search_text.to_lowercase())
-                })
-                .collect();
-            if idx < filtered.len() {
-                if let Some(orig_idx) = self.catalog.iter().position(|a| a.key == filtered[idx].key)
-                {
-                    self.selected_model = orig_idx;
-                    self.tool = EditorTool::Objects;
-                    self.status = format!("Selected {}.", self.catalog[orig_idx].file);
-                }
-            }
-        }
     }
 
     pub fn import_placements(&mut self, placements: &[ModelPlacement]) {
@@ -937,14 +691,10 @@ impl ClusterEditor {
 
     fn draw_spawn_indicator(&self) {
         let p = self.camera_target;
-        // Draw a blue glowing beacon at the spawn point (camera target)
         draw_ring(vec3(p.x, 0.05, p.z), 1.0, 32, SKYBLUE);
         draw_ring(vec3(p.x, 0.08, p.z), 0.8, 24, BLUE);
         draw_line_3d(vec3(p.x, 0.0, p.z), vec3(p.x, 1.5, p.z), SKYBLUE);
         draw_sphere(vec3(p.x, 1.5, p.z), 0.15, None, SKYBLUE);
-
-        // Add a "SPAWN" text floating above it
-        // We can't easily draw 3D text in macroquad without a helper, so we'll just stick to the beacon for now
     }
 
     fn new_cluster(&mut self) {
@@ -1018,6 +768,42 @@ impl ClusterEditor {
         }
     }
 
+    fn save_active_cluster(&mut self) {
+        let cluster = self.map.active_cluster_mut();
+        let name = cluster.name.clone();
+        if let Err(err) = std::fs::create_dir_all(CLUSTER_DIR) {
+            self.status = format!("Save failed: {}", err);
+            return;
+        }
+        let path = format!("{}/{}.json", CLUSTER_DIR, name);
+        match serde_json::to_string_pretty(cluster)
+            .map_err(|err| err.to_string())
+            .and_then(|json| std::fs::write(&path, json).map_err(|err| err.to_string()))
+        {
+            Ok(_) => {
+                self.status = format!("Saved cluster to {}.", name);
+                self.cluster_catalog = discover_clusters();
+            }
+            Err(err) => self.status = format!("Save failed: {}", err),
+        }
+    }
+
+    fn load_cluster(&mut self, filename: &str) {
+        let path = format!("{}/{}", CLUSTER_DIR, filename);
+        match std::fs::read_to_string(&path) {
+            Ok(json) => {
+                match serde_json::from_str::<crate::world::cluster::WorldCluster>(&json) {
+                    Ok(cluster) => {
+                        self.map.clusters[0] = cluster;
+                        self.status = format!("Loaded cluster {}.", filename);
+                    }
+                    Err(err) => self.status = format!("Load failed: {}", err),
+                }
+            }
+            Err(err) => self.status = format!("Load failed: {}", err),
+        }
+    }
+
     fn update_selection(&mut self) {
         let cursor = self.mouse_ground_pos();
 
@@ -1027,6 +813,21 @@ impl ClusterEditor {
             }
             if is_key_pressed(KeyCode::T) {
                 self.rotate_selected(-ROTATION_STEP);
+            }
+            if is_key_pressed(KeyCode::Y) {
+                self.scale_selected(SCALE_STEP);
+            }
+            if is_key_pressed(KeyCode::H) {
+                self.scale_selected(-SCALE_STEP);
+            }
+
+            let (_, wheel_y) = mouse_wheel();
+            if wheel_y.abs() > 0.01 {
+                if wheel_y > 0.0 {
+                    self.scale_selected(SCALE_STEP);
+                } else {
+                    self.scale_selected(-SCALE_STEP);
+                }
             }
         }
 
@@ -1206,11 +1007,25 @@ impl ClusterEditor {
         self.status = String::from("Rotated selection.");
     }
 
+    fn scale_selected(&mut self, delta: f32) {
+        for &(c, p) in &self.selected_placements {
+            if let Some(placement) = self
+                .map
+                .clusters
+                .get_mut(c)
+                .and_then(|cluster| cluster.placements.get_mut(p))
+            {
+                placement.scale = (placement.scale + delta).clamp(MIN_OBJECT_SCALE, MAX_OBJECT_SCALE);
+            }
+        }
+        self.status = String::from("Scaled selection.");
+    }
+
     fn snap_world_pos(&self, pos: Vec3, step: f32) -> Vec3 {
         vec3(
-            (pos.x / step).round() * step,
+            self.avoid_chunk_border((pos.x / step).round() * step),
             pos.y,
-            (pos.z / step).round() * step,
+            self.avoid_chunk_border((pos.z / step).round() * step),
         )
     }
 
@@ -1218,24 +1033,29 @@ impl ClusterEditor {
         if self.grid_snap_enabled {
             self.snap_world_pos(pos, GRID_STEP)
         } else {
-            pos
+            vec3(
+                self.avoid_chunk_border(pos.x),
+                pos.y,
+                self.avoid_chunk_border(pos.z),
+            )
         }
     }
 
-    fn pointer_over_panel(&self) -> bool {
-        let (mx, _) = mouse_position();
-        let sw = screen_width();
-        let left_w = if self.left_collapsed {
-            12.0
+    fn avoid_chunk_border(&self, coord: f32) -> f32 {
+        let remainder = coord.rem_euclid(CHUNK_SIZE_M);
+        if remainder <= CHUNK_BORDER_EPSILON
+            || (CHUNK_SIZE_M - remainder) <= CHUNK_BORDER_EPSILON
+        {
+            if coord.abs() <= CHUNK_BORDER_EPSILON {
+                CHUNK_BORDER_INSET
+            } else if coord > 0.0 {
+                coord - CHUNK_BORDER_INSET
+            } else {
+                coord + CHUNK_BORDER_INSET
+            }
         } else {
-            TOOLBAR_WIDTH
-        };
-        let right_w = if self.right_collapsed {
-            12.0
-        } else {
-            SIDEBAR_WIDTH
-        };
-        mx < left_w || mx > sw - right_w
+            coord
+        }
     }
 }
 
@@ -1264,6 +1084,23 @@ fn discover_model_assets() -> Vec<ModelAsset> {
     assets
 }
 
+fn discover_clusters() -> Vec<String> {
+    let mut clusters = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(CLUSTER_DIR) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            if let Some(file) = path.file_name().and_then(|name| name.to_str()) {
+                clusters.push(file.to_string());
+            }
+        }
+    }
+    clusters.sort();
+    clusters
+}
+
 fn biome_color(biome: &str) -> Color {
     match biome {
         "forest" => Color::new(0.05, 0.32, 0.12, 0.34),
@@ -1276,17 +1113,6 @@ fn biome_color(biome: &str) -> Color {
 
 fn ctrl_down() -> bool {
     is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
-}
-
-fn rect_contains(x: f32, y: f32, w: f32, h: f32, point: (f32, f32)) -> bool {
-    point.0 >= x && point.0 <= x + w && point.1 >= y && point.1 <= y + h
-}
-
-fn truncate_label(label: &str, max_chars: usize) -> String {
-    if label.len() <= max_chars {
-        return label.to_string();
-    }
-    format!("{}...", &label[..max_chars.saturating_sub(3)])
 }
 
 fn draw_ring(center: Vec3, radius: f32, segments: usize, color: Color) {

@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const BIOMES: [&str; 5] = ["grassland", "forest", "wetland", "rocky", "camp"];
 
@@ -22,6 +22,10 @@ pub struct ModelPlacement {
     pub model: String,
     pub file: String,
     pub position: [f32; 3],
+    #[serde(
+        deserialize_with = "deserialize_rotation_degrees",
+        serialize_with = "serialize_rotation_degrees"
+    )]
     pub rotation: f32,
     pub scale: f32,
     pub blocks_movement: bool,
@@ -31,6 +35,32 @@ impl ModelPlacement {
     pub fn pos_vec3(&self) -> Vec3 {
         vec3(self.position[0], self.position[1], self.position[2])
     }
+}
+
+fn deserialize_rotation_degrees<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = f32::deserialize(deserializer)?;
+    if raw.abs() <= std::f32::consts::TAU + 0.001 {
+        Ok(raw)
+    } else {
+        Ok(raw.to_radians())
+    }
+}
+
+fn serialize_rotation_degrees<S>(rotation_radians: &f32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut degrees = rotation_radians.to_degrees().rem_euclid(360.0);
+    for snapped in [0.0_f32, 90.0, 180.0, 270.0] {
+        if (degrees - snapped).abs() < 0.01 {
+            degrees = snapped;
+            break;
+        }
+    }
+    serializer.serialize_f32((degrees * 1000.0).round() / 1000.0)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

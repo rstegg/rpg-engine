@@ -20,7 +20,9 @@ use systems::cluster_editor::*;
 use systems::indicators::*;
 use systems::input::*;
 use ui::character_creator::*;
-use world::environment::{self, HitboxConfig};
+use world::environment::{self, HitboxConfig, GltfTemplate};
+use world::chunk::{ChunkedWorld, ChunkCoord};
+use world::pathfinding::{self, slide_move_world};
 
 const HITBOX_SIDEBAR_WIDTH: f32 = 320.0;
 const HITBOX_ROW_HEIGHT: f32 = 24.0;
@@ -137,6 +139,14 @@ fn discover_hitbox_calibration_models() -> BTreeMap<String, String> {
     for (key, file) in environment::builtin_template_defs() {
         models.insert(key.to_string(), format!("assets/world_models/{file}"));
     }
+    models.insert(
+        "gate_closed".to_string(),
+        "assets/world_models/fence_gate.glb".to_string(),
+    );
+    models.insert(
+        "gate_open".to_string(),
+        "assets/world_models/fence_gate.glb".to_string(),
+    );
 
     if let Ok(entries) = std::fs::read_dir("assets/world_models") {
         for entry in entries.flatten() {
@@ -156,7 +166,34 @@ fn discover_hitbox_calibration_models() -> BTreeMap<String, String> {
         }
     }
 
+    // Hide raw gate aliases in calibration mode. Gates should be painted through
+    // the explicit state entries so the editor only exposes meaningful choices.
+    models.remove("gate");
+    models.remove("fence_gate");
+
     models
+}
+
+fn hitbox_calibration_config_key(key: &str) -> &str {
+    match key {
+        "gate_closed" => "gate",
+        "gate_open" => "gate_open",
+        _ => key,
+    }
+}
+
+fn hitbox_calibration_template_key(key: &str) -> &str {
+    match key {
+        "gate_closed" | "gate_open" => "gate",
+        _ => key,
+    }
+}
+
+fn hitbox_calibration_preview_open_progress(key: &str) -> f32 {
+    match key {
+        "gate_open" => 1.0,
+        _ => 0.0,
+    }
 }
 
 async fn rebuild_world_from_current_placements(
@@ -240,11 +277,18 @@ async fn main() {
     };
     let hitbox_models = discover_hitbox_calibration_models();
 
-    let mut world_env =
-        world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), true).await;
+    let mut chunk_world = ChunkedWorld::new(hitbox_config.clone(), std::collections::HashMap::new(), 12345);
+    let mut world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
+    // Pre-load built-in templates into chunk_world
+    for (key, file) in environment::builtin_template_defs() {
+        if let Some(t) = environment::load_glb_template(&format!("assets/world_models/{}", file)).await {
+            chunk_world.templates.insert(key.to_string(), t);
+        }
+    }
     let mut debug_pathfinding = false;
 
     let mut game_camera = GameCamera::new(hero.pos);
+    let mut previous_mouse_pos = mouse_position();
     let mut effect_manager = EffectManager::new();
     let mut indicator_manager = IndicatorManager::new();
     let mut cluster_editor = ClusterEditor::new();
@@ -283,7 +327,7 @@ async fn main() {
     // Ensure all templates have an entry in hitbox_config
     for key in hitbox_models.keys() {
         hitbox_config
-            .entry(key.clone())
+            .entry(hitbox_calibration_config_key(key).to_string())
             .or_insert(environment::HitboxConfigEntry::Legacy(1.0));
     }
 
@@ -294,7 +338,9 @@ async fn main() {
         // ── egui UI pass (single call per frame) ──
         // Capture any values we need back from the closure.
         let mut egui_login_changed = false;
+        let mut egui_wants_pointer = false;
         egui_macroquad::ui(|ctx| {
+            egui_wants_pointer = ctx.wants_pointer_input() || ctx.is_pointer_over_area();
             apply_rpg_egui_theme(ctx);
 
             if game_state == GameState::Login {
@@ -353,12 +399,23 @@ async fn main() {
                         );
                     });
             }
+
+            if game_state == GameState::ClusterEditor {
+                let template_loaded = cluster_editor
+                    .selected_asset()
+                    .map(|asset| world_env.sim.templates.contains_key(&asset.key))
+                    .unwrap_or(false);
+                cluster_editor.draw_egui(ctx, template_loaded);
+            }
         });
 
         // ── Character Buffer Management ──
         // Drain macroquad char buffer in states where egui is handling input,
         // and in gameplay to prevent WASD leaking into fields.
-        if game_state != GameState::HitboxCalibration {
+        // NOTE: ClusterEditor now uses egui, so we drain it there too if needed, 
+        // but macroquad still has its own search_text in ClusterEditor. 
+        // We moved that to egui::TextEdit so it's safe to drain.
+        if game_state != GameState::HitboxCalibration && game_state != GameState::ClusterEditor {
             while let Some(_) = get_char_pressed() {}
         }
 
@@ -600,6 +657,9 @@ async fn main() {
                         rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
                         game_state = GameState::Playing;
                     }
+                    egui_macroquad::draw();
+                    previous_mouse_pos = mouse_position();
+                    next_frame().await;
                     continue;
                 }
                 if calibration_selected_idx >= keys.len() {
@@ -607,10 +667,11 @@ async fn main() {
                 }
                 let mut calibration_selection_changed = false;
                 let current_key = keys[calibration_selected_idx].clone();
-                if !world_env.sim.templates.contains_key(&current_key) {
+                let template_key = hitbox_calibration_template_key(&current_key).to_string();
+                if !world_env.sim.templates.contains_key(&template_key) {
                     if let Some(path) = hitbox_models.get(&current_key) {
                         if let Some(template) = world::environment::load_glb_template(path).await {
-                            world_env.sim.templates.insert(current_key.clone(), template);
+                            world_env.sim.templates.insert(template_key.clone(), template);
                         }
                     }
                 }
@@ -716,11 +777,14 @@ async fn main() {
 
                 draw_grid(10, 2.0, GRAY, DARKGRAY);
 
-                if let Some(t) = world_env.sim.templates.get(&current_key) {
+                let template_key = hitbox_calibration_template_key(&current_key);
+                let config_key = hitbox_calibration_config_key(&current_key);
+                
+                if let Some(t) = world_env.sim.templates.get(template_key) {
                     let grid_size = world_env.sim.grid_size;
                     let mask = environment::ensure_painted_hitbox_entry(
                         &mut hitbox_config,
-                        &current_key,
+                        config_key,
                         t,
                         grid_size,
                     );
@@ -746,15 +810,23 @@ async fn main() {
                     };
 
                     if let (Some(cell), Some(erase)) = (hovered_cell, paint_mode) {
+                        let in_bounds = cell[0].abs() <= world::environment::MAX_HITBOX_CELL_EXTENT 
+                                     && cell[1].abs() <= world::environment::MAX_HITBOX_CELL_EXTENT;
+
                         let should_apply = calibration_last_paint
                             .map(|last| last != (cell, erase))
                             .unwrap_or(true);
                         if should_apply {
                             if erase {
                                 mask.blocked_cells.retain(|&blocked| blocked != cell);
-                            } else if !mask.blocked_cells.contains(&cell) {
-                                mask.blocked_cells.push(cell);
+                            } else if in_bounds {
+                                if !mask.blocked_cells.contains(&cell) {
+                                    mask.blocked_cells.push(cell);
+                                }
                             }
+
+
+
                             mask.blocked_cells.sort_unstable();
                             calibration_last_paint = Some((cell, erase));
                         }
@@ -763,7 +835,17 @@ async fn main() {
                     }
 
                     // Draw the model
-                    let meshes = world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), 0.0, 2.0);
+                    let meshes = if template_key == "gate" {
+                        world::environment::instantiate_gate(
+                            t,
+                            vec3(0.0, 0.0, 0.0),
+                            0.0,
+                            2.0,
+                            hitbox_calibration_preview_open_progress(&current_key),
+                        )
+                    } else {
+                        world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), 0.0, 2.0)
+                    };
                     for m in meshes {
                         draw_mesh(&m);
                     }
@@ -778,10 +860,16 @@ async fn main() {
                     }
 
                     if let Some([cell_x, cell_z]) = hovered_cell {
+                        let in_bounds = cell_x.abs() <= world::environment::MAX_HITBOX_CELL_EXTENT 
+                                     && cell_z.abs() <= world::environment::MAX_HITBOX_CELL_EXTENT;
+
                         draw_cube_wires(
                             vec3(cell_x as f32 * grid_size, 0.08, cell_z as f32 * grid_size),
                             vec3(grid_size, 0.12, grid_size),
-                            if is_mouse_button_down(MouseButton::Right) {
+                            if !in_bounds {
+                                RED
+                            } else if is_mouse_button_down(MouseButton::Right) {
+
                                 ORANGE
                             } else {
                                 YELLOW
@@ -807,7 +895,7 @@ async fn main() {
                 }
 
                 let blocked_count = hitbox_config
-                    .get(&current_key)
+                    .get(hitbox_calibration_config_key(&current_key))
                     .and_then(|entry| match entry {
                         environment::HitboxConfigEntry::Painted(mask) => {
                             Some(mask.blocked_cells.len())
@@ -1046,29 +1134,23 @@ async fn main() {
                     game_state = GameState::CharacterCreation;
                 }
 
-                // Check if server accepted a character selection (JoinAccepted + MapData)
+                // Check if server accepted a character selection (JoinAccepted)
                 if let Some(ref mut nc) = net_client {
-                    if nc.connected && nc.pending_map.is_some() {
-                        let (palette, placements) = nc.pending_map.take().unwrap();
-                        println!("[CLIENT] Building world from server placements ({})...", placements.len());
-                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
-                        for p in placements {
-                            let (model_name, file_name) = &palette[p.model_idx as usize];
-                            if !world_env.sim.templates.contains_key(model_name) {
-                                if let Some(template) = world::environment::load_glb_template(&format!("assets/world_models/{}", file_name)).await {
-                                    world_env.sim.templates.insert(model_name.clone(), template);
+                    if nc.connected {
+                        println!("[CLIENT] Character selection accepted, entering world...");
+                        // Clear chunks and entities for fresh start, but preserve templates
+                        let old_templates = std::mem::take(&mut chunk_world.templates);
+                        chunk_world = ChunkedWorld::new(hitbox_config.clone(), old_templates, 12345);
+                        
+                        // Ensure built-in templates are present (if they weren't already)
+                        for (key, file) in environment::builtin_template_defs() {
+                            if !chunk_world.templates.contains_key(key) {
+                                if let Some(t) = environment::load_glb_template(&format!("assets/world_models/{}", file)).await {
+                                    chunk_world.templates.insert(key.to_string(), t);
                                 }
                             }
-                            let sim_p = world::cluster::ModelPlacement {
-                                model: model_name.clone(),
-                                file: file_name.clone(),
-                                position: p.position,
-                                rotation: p.rotation,
-                                scale: p.scale,
-                                blocks_movement: p.blocks_movement,
-                            };
-                            world_env.add_placement(&sim_p, &hitbox_config);
                         }
+
                         char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
                         game_state = GameState::Playing;
                     }
@@ -1111,23 +1193,8 @@ async fn main() {
                 // Check if reconnected
                 if let Some(ref mut nc) = net_client {
                     nc.update();
-                    if nc.connected && nc.pending_map.is_some() {
-                        let (palette, placements) = nc.pending_map.take().unwrap();
-                        world_env = world::environment::WorldEnvironment::new(20, 20, hitbox_config.clone(), false).await;
-                        for p in placements {
-                            let (model_name, file_name) = &palette[p.model_idx as usize];
-                            if !world_env.sim.templates.contains_key(model_name) {
-                                if let Some(template) = world::environment::load_glb_template(&format!("assets/world_models/{}", file_name)).await {
-                                    world_env.sim.templates.insert(model_name.clone(), template);
-                                }
-                            }
-                            let sim_p = world::cluster::ModelPlacement {
-                                model: model_name.clone(), file: file_name.clone(),
-                                position: p.position, rotation: p.rotation,
-                                scale: p.scale, blocks_movement: p.blocks_movement,
-                            };
-                            world_env.add_placement(&sim_p, &hitbox_config);
-                        }
+                    if nc.connected {
+                        println!("[CLIENT] Reconnected successfully.");
                         game_state = GameState::Playing;
                     }
                 }
@@ -1138,7 +1205,14 @@ async fn main() {
                 }
             }
             GameState::ClusterEditor => {
-                let editor_action = cluster_editor.update();
+                let editor_action = cluster_editor.update(egui_wants_pointer);
+
+                for asset in cluster_editor.missing_template_assets(&world_env.sim.templates) {
+                    if let Some(template) = world::environment::load_glb_template(&asset.path).await
+                    {
+                        world_env.sim.templates.insert(asset.key, template);
+                    }
+                }
 
                 if let Some(asset) = cluster_editor.selected_asset() {
                     if !world_env.sim.templates.contains_key(&asset.key) {
@@ -1177,28 +1251,30 @@ async fn main() {
                         .await;
                     }
                     EditorAction::PlayTest => {
-                        world_env = world::environment::WorldEnvironment::new(
-                            20,
-                            20,
-                            hitbox_config.clone(),
-                            false,
-                        )
-                        .await;
+                        chunk_world = ChunkedWorld::new(hitbox_config.clone(), std::collections::HashMap::new(), 12345);
+                        // Pre-load templates
                         for placement in cluster_editor.all_placements() {
-                            if !world_env.sim.templates.contains_key(&placement.model) {
+                            if !chunk_world.templates.contains_key(&placement.model) {
                                 if let Some(template) = world::environment::load_glb_template(
                                     &format!("assets/world_models/{}", placement.file),
                                 )
                                 .await
                                 {
-                                    world_env
-                                        .sim
-                                        .templates
-                                        .insert(placement.model.clone(), template);
+                                    chunk_world.templates.insert(placement.model.clone(), template);
                                 }
                             }
-                            world_env.add_placement(&placement, &hitbox_config);
                         }
+                        // Group placements by chunk
+                        let mut chunks_map: std::collections::HashMap<ChunkCoord, Vec<world::cluster::ModelPlacement>> = std::collections::HashMap::new();
+                        for p in cluster_editor.all_placements() {
+                            let coord = ChunkCoord::from_world_pos(p.pos_vec3());
+                            chunks_map.entry(coord).or_default().push(p);
+                        }
+
+                        for (coord, placements) in chunks_map {
+                            chunk_world.insert_chunk(coord, world::chunk::BiomeType::Grassland, placements);
+                        }
+                        
                         let start = cluster_editor.playtest_start();
                         hero.pos = start;
                         hero.target_pos = start;
@@ -1208,6 +1284,7 @@ async fn main() {
                     _ => {}
                 }
 
+                gl_use_default_material();
                 set_camera(cluster_editor.camera());
                 cluster_editor.draw_3d(&world_env.sim.templates);
 
@@ -1216,9 +1293,12 @@ async fn main() {
                     .selected_asset()
                     .map(|asset| world_env.sim.templates.contains_key(&asset.key))
                     .unwrap_or(false);
-                cluster_editor.draw_ui(template_loaded);
+                // cluster_editor.draw_ui is now legacy
             }
             GameState::Playing => {
+                // Hot reload world data
+                chunk_world.check_hot_reload();
+                world_env.check_hot_reload();
                 if is_key_pressed(KeyCode::C) {
                     creator.reset();
                     game_state = GameState::CharacterCreation;
@@ -1284,6 +1364,36 @@ async fn main() {
                         }
                     }
 
+                    // ─── Chunk Streaming ───
+                    while !client.pending_chunks.is_empty() {
+                        let chunk_data = client.pending_chunks.remove(0);
+                        let coord = ChunkCoord::new(chunk_data.coord_x, chunk_data.coord_z);
+                        for (name, file) in &chunk_data.palette {
+                            if !chunk_world.templates.contains_key(name) {
+                                if let Some(t) = world::environment::load_glb_template(&format!("assets/world_models/{}", file)).await {
+                                    chunk_world.templates.insert(name.clone(), t);
+                                }
+                            }
+                        }
+                        let placements = chunk_data.placements.iter().map(|p| {
+                            let (model_name, file_name) = &chunk_data.palette[p.model_idx as usize];
+                            world::cluster::ModelPlacement {
+                                model: model_name.clone(), file: file_name.clone(),
+                                position: p.position, rotation: p.rotation,
+                                scale: p.scale, blocks_movement: p.blocks_movement,
+                            }
+                        }).collect();
+                        let biome = match chunk_data.biome.as_str() {
+                            "Town" => world::chunk::BiomeType::Town,
+                            "Forest" => world::chunk::BiomeType::Forest,
+                            "Rocky" => world::chunk::BiomeType::Rocky,
+                            "Wetland" => world::chunk::BiomeType::Wetland,
+                            _ => world::chunk::BiomeType::Grassland,
+                        };
+                        chunk_world.insert_chunk(coord, biome, placements);
+                    }
+                    chunk_world.update(hero.pos, 2, true);
+
                     // Apply server world state
                     if let Some(ref world) = client.latest_world {
                         if let Some(my_id) = client.my_id {
@@ -1325,6 +1435,12 @@ async fn main() {
                                         hero.anim.set_state(server_state);
                                     }
                                 } else {
+                                    // Cleanup remote player data for players no longer in the snapshot
+                                    let current_player_ids: std::collections::HashSet<PlayerId> = world.players.iter().map(|p| p.id).collect();
+                                    remote_player_positions.retain(|id, _| current_player_ids.contains(id));
+                                    remote_anims.retain(|id, _| current_player_ids.contains(id));
+                                    remote_textures.retain(|id, _| current_player_ids.contains(id));
+
                                     let pos = remote_player_positions
                                         .entry(ps.id)
                                         .or_insert(vec3(ps.x, 0.0, ps.z));
@@ -1416,10 +1532,31 @@ async fn main() {
                                 *pos = pos.lerp(srv_pos, 15.0 * delta_time);
                             }
                         }
+
+                        // Sync Gates
+                        for gs in &world.gates {
+                            let srv_pos = vec3(gs.x, 0.0, gs.z);
+                            if let Some(gate) = chunk_world.gates.iter_mut().find(|g| (g.position - srv_pos).length_squared() < 0.1) {
+                                gate.open_progress = gs.open_progress;
+                                if gate.open_progress > 0.9 {
+                                    gate.state = world::chunk::GateState::Open;
+                                } else if gate.open_progress < 0.1 {
+                                    gate.state = world::chunk::GateState::Closed;
+                                }
+                            }
+                        }
                     }
                 }
 
+                let current_mouse_pos = mouse_position();
                 game_camera.update(hero.pos);
+                if debug_pathfinding && is_mouse_button_down(MouseButton::Middle) {
+                    let delta_x = current_mouse_pos.0 - previous_mouse_pos.0;
+                    let delta_y = current_mouse_pos.1 - previous_mouse_pos.1;
+                    if delta_x.abs() > f32::EPSILON || delta_y.abs() > f32::EPSILON {
+                        game_camera.orbit(delta_x, delta_y, hero.pos);
+                    }
+                }
                 let targets: Vec<(u64, Vec3)> = if let Some(ref client) = net_client {
                     if let Some(ref world) = client.latest_world {
                         world.enemies.iter()
@@ -1444,7 +1581,7 @@ async fn main() {
                         &targets,
                         &mut combat_text_mgr,
                         &assets,
-                        &world_env,
+                        &chunk_world,
                         &mut indicator_manager,
                     )
                 } else {
@@ -1548,6 +1685,9 @@ async fn main() {
                     }
                 }
 
+                // Gate animation can be predicted locally even in networked play.
+                chunk_world.update_gates(&[hero.pos], delta_time);
+
                 // Local simulation (for offline or client-side prediction)
                 if net_client.is_none() {
                     if hero.casting_timer > 0.0 {
@@ -1558,26 +1698,14 @@ async fn main() {
                         let to_target = hero.target_pos - hero.pos;
                         if to_target.length() > 0.1 {
                             let desired = hero.pos + to_target.normalize() * speed * delta_time;
-                            let new_pos = world::pathfinding::slide_move(
+                            let new_pos = world::pathfinding::slide_move_world(
                                 hero.pos,
                                 desired,
                                 PLAYER_RADIUS,
-                                world_env.sim.grid_size,
-                                world_env.sim.width,
-                                world_env.sim.height,
-                                &world_env.sim.walkability_grid,
+                                |p| chunk_world.is_walkable(p)
                             );
                             if (new_pos - hero.pos).length() > 0.001 {
                                 hero.pos = new_pos;
-
-                                // ── World Boundary Clamping ──
-                                let margin = PLAYER_RADIUS + 0.1;
-                                let hw =
-                                    (world_env.sim.width as f32 * world_env.sim.grid_size) / 2.0 - margin;
-                                let hh =
-                                    (world_env.sim.height as f32 * world_env.sim.grid_size) / 2.0 - margin;
-                                hero.pos.x = hero.pos.x.clamp(-hw, hw);
-                                hero.pos.z = hero.pos.z.clamp(-hh, hh);
 
                                 hero.anim.set_state(AnimationState::Walk);
                                 hero.anim.set_direction(to_target);
@@ -1633,7 +1761,7 @@ async fn main() {
                 indicator_manager.update(delta_time);
                 
                 if net_client.is_none() {
-                    enemy_director.update(delta_time, &mut hero, &mut combat_text_mgr, &world_env);
+                    enemy_director.update(delta_time, &mut hero, &mut combat_text_mgr, &chunk_world);
                     if hero.is_dead {
                         game_state = GameState::GameOver;
                     }
@@ -1644,31 +1772,50 @@ async fn main() {
                 // Render
                 set_camera(&game_camera.camera);
                 // draw_grid(20, 1.0, BLACK, GRAY);
-                world_env.draw();
+                chunk_world.draw();
+                
+                // (Note: Debug pathfinding overlay disabled for infinite world for now)
 
                 // ── F1: Pathfinding Debug Overlay ──────────────────────────
                 if is_key_pressed(KeyCode::F1) {
                     debug_pathfinding = !debug_pathfinding;
+                    if !debug_pathfinding {
+                        game_camera.reset_view(hero.pos);
+                    }
                 }
 
                 if debug_pathfinding {
-                    let gs = world_env.sim.grid_size;
-                    let hw = world_env.sim.width / 2;
-                    let hh = world_env.sim.height / 2;
+                    let gs = world::chunk::GRID_SIZE;
 
-                    // Draw blocked grid cells in semi-transparent red
-                    for x in 0..world_env.sim.width {
-                        for z in 0..world_env.sim.height {
-                            if !world_env.sim.walkability_grid[x as usize][z as usize] {
-                                let wx = (x - hw) as f32 * gs;
-                                let wz = (z - hh) as f32 * gs;
-                                draw_cube(
-                                    vec3(wx, 0.05, wz),
-                                    vec3(gs * 0.95, 0.1, gs * 0.95),
-                                    None,
-                                    Color::new(1.0, 0.0, 0.0, 0.45),
-                                );
+                    // Draw blocked grid cells from all loaded chunks in semi-transparent red.
+                    for (coord, chunk) in &chunk_world.chunks {
+                        let center = coord.world_center();
+                        for x in 0..world::chunk::GRID_WIDTH {
+                            for z in 0..world::chunk::GRID_WIDTH {
+                                if !chunk.walkability[x as usize][z as usize] {
+                                    let wx = center.x
+                                        + (x - world::chunk::GRID_WIDTH / 2) as f32 * gs;
+                                    let wz = center.z
+                                        + (z - world::chunk::GRID_WIDTH / 2) as f32 * gs;
+                                    draw_cube(
+                                        vec3(wx, 0.05, wz),
+                                        vec3(gs * 0.95, 0.1, gs * 0.95),
+                                        None,
+                                        Color::new(1.0, 0.0, 0.0, 0.45),
+                                    );
+                                }
                             }
+                        }
+                    }
+
+                    for gate in &chunk_world.gates {
+                        if gate.open_progress < 0.6 {
+                            draw_cube(
+                                gate.position + vec3(0.0, 0.12, 0.0),
+                                vec3(0.5, 0.24, 2.0),
+                                None,
+                                Color::new(1.0, 0.55, 0.0, 0.35),
+                            );
                         }
                     }
 
@@ -1698,18 +1845,21 @@ async fn main() {
                         draw_sphere(*dest + vec3(0.0, 0.6, 0.0), 0.2, None, LIME);
                     }
 
-                    // Show grid lines faintly
-                    for x in -hw..=hw {
+                    // Show grid lines faintly around the player.
+                    let grid_radius = 20;
+                    let hero_gx = (hero.pos.x / gs).round() as i32;
+                    let hero_gz = (hero.pos.z / gs).round() as i32;
+                    for x in (hero_gx - grid_radius)..=(hero_gx + grid_radius) {
                         draw_line_3d(
-                            vec3(x as f32 * gs, 0.02, -hh as f32 * gs),
-                            vec3(x as f32 * gs, 0.02, hh as f32 * gs),
+                            vec3(x as f32 * gs, 0.02, (hero_gz - grid_radius) as f32 * gs),
+                            vec3(x as f32 * gs, 0.02, (hero_gz + grid_radius) as f32 * gs),
                             Color::new(1.0, 1.0, 1.0, 0.08),
                         );
                     }
-                    for z in -hh..=hh {
+                    for z in (hero_gz - grid_radius)..=(hero_gz + grid_radius) {
                         draw_line_3d(
-                            vec3(-hw as f32 * gs, 0.02, z as f32 * gs),
-                            vec3(hw as f32 * gs, 0.02, z as f32 * gs),
+                            vec3((hero_gx - grid_radius) as f32 * gs, 0.02, z as f32 * gs),
+                            vec3((hero_gx + grid_radius) as f32 * gs, 0.02, z as f32 * gs),
                             Color::new(1.0, 1.0, 1.0, 0.08),
                         );
                     }
@@ -2021,6 +2171,7 @@ async fn main() {
         // ── Render egui on top of everything ──
         egui_macroquad::draw();
 
+        previous_mouse_pos = mouse_position();
         next_frame().await
     }
 }
@@ -2052,6 +2203,4 @@ fn sync_creator_indices(creator: &mut CharacterCreator) {
     creator.selected_indices[5] = find(&creator.catalog.facial_hair, &app.facial_hair);
     creator.selected_indices[6] = find(&creator.catalog.eye_colors, &app.eye_color);
     creator.selected_indices[7] = find(&creator.catalog.eyelashes, &app.eyelashes);
-    creator.selected_indices[8] = find(&creator.catalog.headgears, &app.headgear);
-    creator.selected_indices[9] = find(&creator.catalog.addons, &app.addon);
 }

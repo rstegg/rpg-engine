@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub const DEFAULT_HITBOX_REFERENCE_SCALE: f32 = 2.0;
+pub const MAX_HITBOX_CELL_EXTENT: i32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -46,6 +47,9 @@ pub fn builtin_template_defs() -> Vec<(&'static str, &'static str)> {
         ("tent", "tent_detailedOpen.glb"),
         ("campfire", "campfire_bricks.glb"),
         ("stump", "stump_round.glb"),
+        ("fence", "fence_planksDouble.glb"),
+        ("gate", "fence_gate.glb"),
+        ("sign", "sign.glb"),
     ]
 }
 
@@ -54,12 +58,21 @@ pub fn builtin_template_defs() -> Vec<(&'static str, &'static str)> {
 pub struct GltfPrimitive {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    pub node_index: usize,
+}
+
+#[derive(Clone)]
+pub struct GltfNode {
+    pub name: Option<String>,
+    pub parent_index: Option<usize>,
+    pub local_transform: Mat4,
 }
 
 /// All primitives + the XZ footprint radius derived from actual geometry.
 #[derive(Clone)]
 pub struct GltfTemplate {
     pub primitives: Vec<GltfPrimitive>,
+    pub nodes: Vec<GltfNode>,
     /// Maximum distance from the center on the XZ plane across ALL primitives.
     /// Used to compute how many grid cells this model actually blocks.
     pub footprint_radius: f32,
@@ -75,67 +88,185 @@ pub fn load_glb_template_sync(path: &str) -> Option<GltfTemplate> {
     parse_glb_template(&bytes)
 }
 
+fn mat4_from_gltf_transform(transform: [[f32; 4]; 4]) -> Mat4 {
+    let m0 = vec4(transform[0][0], transform[0][1], transform[0][2], transform[0][3]);
+    let m1 = vec4(transform[1][0], transform[1][1], transform[1][2], transform[1][3]);
+    let m2 = vec4(transform[2][0], transform[2][1], transform[2][2], transform[2][3]);
+    let m3 = vec4(transform[3][0], transform[3][1], transform[3][2], transform[3][3]);
+    Mat4::from_cols(m0, m1, m2, m3)
+}
+
+fn compute_node_world_transform(
+    nodes: &[GltfNode],
+    node_index: usize,
+    cache: &mut [Option<Mat4>],
+    gate_leaf_extra_rotation: Option<f32>,
+) -> Mat4 {
+    if let Some(world) = cache[node_index] {
+        return world;
+    }
+
+    let node = &nodes[node_index];
+    let mut local_transform = node.local_transform;
+    if node.name.as_deref() == Some("gate") {
+        if let Some(extra_rotation) = gate_leaf_extra_rotation {
+            local_transform *= Mat4::from_rotation_y(extra_rotation);
+        }
+    }
+
+    let world_transform = if let Some(parent_index) = node.parent_index {
+        compute_node_world_transform(nodes, parent_index, cache, gate_leaf_extra_rotation)
+            * local_transform
+    } else {
+        local_transform
+    };
+
+    cache[node_index] = Some(world_transform);
+    world_transform
+}
+
+fn instantiate_internal(
+    template: &GltfTemplate,
+    pos: Vec3,
+    rotation: f32,
+    scale: f32,
+    gate_leaf_extra_rotation: Option<f32>,
+) -> Vec<Mesh> {
+    let root_rotation = Mat4::from_quat(Quat::from_rotation_y(rotation));
+    let root_scale = Mat4::from_scale(vec3(scale, scale, scale));
+    let root_translation = Mat4::from_translation(pos);
+    let root_transform = root_translation * root_rotation * root_scale;
+    let mut node_world_cache = vec![None; template.nodes.len()];
+
+    template
+        .primitives
+        .iter()
+        .map(|prim| {
+            let node_world = compute_node_world_transform(
+                &template.nodes,
+                prim.node_index,
+                &mut node_world_cache,
+                gate_leaf_extra_rotation,
+            );
+            let final_transform = root_transform * node_world;
+            let normal_transform = final_transform.inverse().transpose();
+            let vertices: Vec<Vertex> = prim
+                .vertices
+                .iter()
+                .map(|v| {
+                    let mut nv = *v;
+                    nv.position = final_transform.project_point3(v.position);
+                    let transformed_normal =
+                        (normal_transform * v.normal).truncate().normalize_or_zero();
+                    nv.normal = transformed_normal.extend(0.0);
+                    nv
+                })
+                .collect();
+            let indices: Vec<u16> = prim.indices.iter().map(|&i| i as u16).collect();
+            Mesh {
+                vertices,
+                indices,
+                texture: None,
+            }
+        })
+        .collect()
+}
+
 pub fn parse_glb_template(bytes: &[u8]) -> Option<GltfTemplate> {
     let gltf = Gltf::from_slice(&bytes).ok()?;
     let blob = gltf.blob.as_deref()?;
 
     let mut primitives = Vec::new();
+    let mut nodes = Vec::new();
     let light_dir = vec3(0.5, 1.0, 0.3).normalize();
     const AMBIENT: f32 = 0.45;
 
     let mut all_positions: Vec<Vec3> = Vec::new();
 
-    for mesh in gltf.meshes() {
-        for primitive in mesh.primitives() {
-            let reader = primitive.reader(|_| Some(blob));
+    for node in gltf.nodes() {
+        nodes.push(GltfNode {
+            name: node.name().map(str::to_string),
+            parent_index: None,
+            local_transform: mat4_from_gltf_transform(node.transform().matrix()),
+        });
+    }
 
-            let positions: Vec<Vec3> = match reader.read_positions() {
-                Some(p) => p.map(|v| vec3(v[0], v[1], v[2])).collect(),
-                None => continue,
-            };
-            let n = positions.len();
+    for node in gltf.nodes() {
+        for child in node.children() {
+            nodes[child.index()].parent_index = Some(node.index());
+        }
+    }
 
-            all_positions.extend_from_slice(&positions);
+    let mut node_world_cache = vec![None; nodes.len()];
 
-            let normals: Vec<Vec3> = reader
-                .read_normals()
-                .map(|it| it.map(|v| vec3(v[0], v[1], v[2])).collect())
-                .unwrap_or_else(|| vec![Vec3::Y; n]);
+    for node in gltf.nodes() {
+        if let Some(mesh) = node.mesh() {
+            let node_world =
+                compute_node_world_transform(&nodes, node.index(), &mut node_world_cache, None);
 
-            let uvs: Vec<Vec2> = reader
-                .read_tex_coords(0)
-                .map(|it| it.into_f32().map(|u| vec2(u[0], u[1])).collect())
-                .unwrap_or_else(|| vec![Vec2::ZERO; n]);
+            for primitive in mesh.primitives() {
+                let reader = primitive.reader(|_| Some(blob));
 
-            let base = primitive
-                .material()
-                .pbr_metallic_roughness()
-                .base_color_factor();
-            let (mat_r, mat_g, mat_b) = (base[0], base[1], base[2]);
+                let positions: Vec<Vec3> = match reader.read_positions() {
+                    Some(p) => p.map(|v| vec3(v[0], v[1], v[2])).collect(),
+                    None => continue,
+                };
+                let n = positions.len();
 
-            let mut vertices = Vec::with_capacity(n);
-            for i in 0..n {
-                let diffuse = normals[i].dot(light_dir).max(0.0);
-                let shade = AMBIENT + (1.0 - AMBIENT) * diffuse;
-                vertices.push(Vertex {
-                    position: positions[i],
-                    uv: uvs[i],
-                    color: [
-                        ((mat_r * shade) * 255.0) as u8,
-                        ((mat_g * shade) * 255.0) as u8,
-                        ((mat_b * shade) * 255.0) as u8,
-                        255,
-                    ],
-                    normal: vec4(normals[i].x, normals[i].y, normals[i].z, 0.0),
+                all_positions.extend(
+                    positions
+                        .iter()
+                        .map(|position| node_world.project_point3(*position)),
+                );
+
+                let normals: Vec<Vec3> = reader
+                    .read_normals()
+                    .map(|it| it.map(|v| vec3(v[0], v[1], v[2])).collect())
+                    .unwrap_or_else(|| vec![Vec3::Y; n]);
+
+                let uvs: Vec<Vec2> = reader
+                    .read_tex_coords(0)
+                    .map(|it| it.into_f32().map(|u| vec2(u[0], u[1])).collect())
+                    .unwrap_or_else(|| vec![Vec2::ZERO; n]);
+
+                let base = primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_factor();
+                let (mat_r, mat_g, mat_b) = (base[0], base[1], base[2]);
+
+                let mut vertices = Vec::with_capacity(n);
+                for i in 0..n {
+                    let transformed_normal = (node_world.inverse().transpose()
+                        * normals[i].extend(0.0))
+                    .truncate()
+                    .normalize_or_zero();
+                    let diffuse = transformed_normal.dot(light_dir).max(0.0);
+                    let shade = AMBIENT + (1.0 - AMBIENT) * diffuse;
+                    vertices.push(Vertex {
+                        position: positions[i],
+                        uv: uvs[i],
+                        color: [
+                            ((mat_r * shade) * 255.0) as u8,
+                            ((mat_g * shade) * 255.0) as u8,
+                            ((mat_b * shade) * 255.0) as u8,
+                            255,
+                        ],
+                        normal: normals[i].extend(0.0),
+                    });
+                }
+
+                let indices: Vec<u32> = match reader.read_indices() {
+                    Some(it) => it.into_u32().collect(),
+                    None => (0..n as u32).collect(),
+                };
+
+                primitives.push(GltfPrimitive {
+                    vertices,
+                    indices,
+                    node_index: node.index(),
                 });
             }
-
-            let indices: Vec<u32> = match reader.read_indices() {
-                Some(it) => it.into_u32().collect(),
-                None => (0..n as u32).collect(),
-            };
-
-            primitives.push(GltfPrimitive { vertices, indices });
         }
     }
 
@@ -163,33 +294,29 @@ pub fn parse_glb_template(bytes: &[u8]) -> Option<GltfTemplate> {
 
     Some(GltfTemplate {
         primitives,
+        nodes,
         footprint_radius,
     })
 }
 
 pub fn instantiate(template: &GltfTemplate, pos: Vec3, rotation: f32, scale: f32) -> Vec<Mesh> {
-    let rot = Quat::from_rotation_y(rotation);
-    template
-        .primitives
-        .iter()
-        .map(|prim| {
-            let vertices: Vec<Vertex> = prim
-                .vertices
-                .iter()
-                .map(|v| {
-                    let mut nv = *v;
-                    nv.position = rot * (v.position * scale) + pos;
-                    nv
-                })
-                .collect();
-            let indices: Vec<u16> = prim.indices.iter().map(|&i| i as u16).collect();
-            Mesh {
-                vertices,
-                indices,
-                texture: None,
-            }
-        })
-        .collect()
+    instantiate_internal(template, pos, rotation, scale, None)
+}
+
+pub fn instantiate_gate(
+    template: &GltfTemplate,
+    pos: Vec3,
+    rotation: f32,
+    scale: f32,
+    open_progress: f32,
+) -> Vec<Mesh> {
+    instantiate_internal(
+        template,
+        pos,
+        rotation,
+        scale,
+        Some(open_progress.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2),
+    )
 }
 
 fn circular_hitbox_mask(
@@ -261,6 +388,43 @@ fn resolved_hitbox_mask(
     }
 }
 
+pub fn find_hitbox_config_entry<'a>(
+    hitbox_config: &'a HitboxConfig,
+    key: &str,
+) -> Option<&'a HitboxConfigEntry> {
+    let preferred_keys: &[&str] = match key {
+        "gate" => &["fence_gate", "gate"],
+        "gate_open" => &["gate_open", "fence_gate_open"],
+        "fence" => &["fence_planksDouble", "fence"],
+        "fence_gate" => &["fence_gate", "gate"],
+        "fence_gate_open" => &["fence_gate_open", "gate_open"],
+        "fence_planksDouble" => &["fence_planksDouble", "fence"],
+        _ => &[key],
+    };
+
+    preferred_keys
+        .iter()
+        .find_map(|candidate| hitbox_config.get(*candidate))
+}
+
+fn rotate_local(local: Vec2, sin_r: f32, cos_r: f32) -> Vec2 {
+    vec2(
+        local.x * cos_r + local.y * sin_r,
+        -local.x * sin_r + local.y * cos_r,
+    )
+}
+
+fn rotate_world_to_local(world: Vec2, sin_r: f32, cos_r: f32) -> Vec2 {
+    vec2(
+        world.x * cos_r - world.y * sin_r,
+        world.x * sin_r + world.y * cos_r,
+    )
+}
+
+fn world_to_grid_index(coord: f32, grid_size: f32, grid_extent: i32) -> i32 {
+    ((coord / grid_size).round() + (grid_extent / 2) as f32) as i32
+}
+
 fn block_painted_mask(
     walkability_grid: &mut [Vec<bool>],
     world_pos: Vec3,
@@ -275,10 +439,8 @@ fn block_painted_mask(
         return;
     }
 
-    let sin_r = rotation.sin();
     let cos_r = rotation.cos();
-    let inv_sin = (-rotation).sin();
-    let inv_cos = (-rotation).cos();
+    let sin_r = rotation.sin();
     let local_half_extent = grid_size * 0.5 / mask.reference_scale;
     let world_half_extent = local_half_extent * scale;
 
@@ -287,10 +449,7 @@ fn block_painted_mask(
             cell_x as f32 * grid_size / mask.reference_scale,
             cell_z as f32 * grid_size / mask.reference_scale,
         ) * scale;
-        let rotated_center = vec2(
-            local_center.x * cos_r + local_center.y * sin_r,
-            -local_center.x * sin_r + local_center.y * cos_r,
-        );
+        let rotated_center = rotate_local(local_center, sin_r, cos_r);
         let cell_center = vec2(
             world_pos.x + rotated_center.x,
             world_pos.z + rotated_center.y,
@@ -302,12 +461,7 @@ fn block_painted_mask(
             vec2(world_half_extent, world_half_extent),
             vec2(-world_half_extent, world_half_extent),
         ]
-        .map(|corner| {
-            vec2(
-                cell_center.x + corner.x * cos_r + corner.y * sin_r,
-                cell_center.y - corner.x * sin_r + corner.y * cos_r,
-            )
-        });
+        .map(|corner| cell_center + rotate_local(corner, sin_r, cos_r));
 
         let min_x = corners.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
         let max_x = corners
@@ -320,10 +474,10 @@ fn block_painted_mask(
             .map(|p| p.y)
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let min_gx = ((min_x / grid_size).round() + (width / 2) as f32) as i32 - 1;
-        let max_gx = ((max_x / grid_size).round() + (width / 2) as f32) as i32 + 1;
-        let min_gz = ((min_z / grid_size).round() + (height / 2) as f32) as i32 - 1;
-        let max_gz = ((max_z / grid_size).round() + (height / 2) as f32) as i32 + 1;
+        let min_gx = world_to_grid_index(min_x, grid_size, width) - 1;
+        let max_gx = world_to_grid_index(max_x, grid_size, width) + 1;
+        let min_gz = world_to_grid_index(min_z, grid_size, height) - 1;
+        let max_gz = world_to_grid_index(max_z, grid_size, height) + 1;
 
         for gx in min_gx..=max_gx {
             for gz in min_gz..=max_gz {
@@ -336,10 +490,7 @@ fn block_painted_mask(
                     (gz - height / 2) as f32 * grid_size,
                 );
                 let delta = point - cell_center;
-                let local_point = vec2(
-                    delta.x * inv_cos + delta.y * inv_sin,
-                    -delta.x * inv_sin + delta.y * inv_cos,
-                );
+                let local_point = rotate_world_to_local(delta, sin_r, cos_r);
 
                 if local_point.x.abs() <= world_half_extent + 0.001
                     && local_point.y.abs() <= world_half_extent + 0.001
@@ -351,7 +502,47 @@ fn block_painted_mask(
     }
 }
 
-fn apply_hitbox_blocking(
+pub fn is_point_in_painted_mask(
+    world_pos: Vec3,
+    rotation: f32,
+    scale: f32,
+    mask: &HitboxPaintedMask,
+    grid_size: f32,
+    check_pos: Vec3,
+) -> bool {
+    if mask.blocked_cells.is_empty() {
+        return false;
+    }
+
+    let cos_r = rotation.cos();
+    let sin_r = rotation.sin();
+    let local_half_extent = grid_size * 0.5 / mask.reference_scale;
+    let world_half_extent = local_half_extent * scale;
+
+    for &[cell_x, cell_z] in &mask.blocked_cells {
+        let local_center = vec2(
+            cell_x as f32 * grid_size / mask.reference_scale,
+            cell_z as f32 * grid_size / mask.reference_scale,
+        ) * scale;
+        let rotated_center = rotate_local(local_center, sin_r, cos_r);
+        let cell_center = vec2(
+            world_pos.x + rotated_center.x,
+            world_pos.z + rotated_center.y,
+        );
+
+        let delta = vec2(check_pos.x, check_pos.z) - cell_center;
+        let local_point = rotate_world_to_local(delta, sin_r, cos_r);
+
+        if local_point.x.abs() <= world_half_extent + 0.001
+            && local_point.y.abs() <= world_half_extent + 0.001
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn apply_hitbox_blocking(
     walkability_grid: &mut [Vec<bool>],
     template: &GltfTemplate,
     model_key: &str,
@@ -363,7 +554,11 @@ fn apply_hitbox_blocking(
     width: i32,
     height: i32,
 ) {
-    let mask = resolved_hitbox_mask(template, hitbox_config.get(model_key), grid_size);
+    let mask = get_resolved_hitbox_mask(
+        template,
+        find_hitbox_config_entry(hitbox_config, model_key),
+        grid_size,
+    );
     block_painted_mask(
         walkability_grid,
         world_pos,
@@ -376,6 +571,157 @@ fn apply_hitbox_blocking(
     );
 }
 
+pub fn get_resolved_hitbox_mask(
+    template: &GltfTemplate,
+    entry: Option<&HitboxConfigEntry>,
+    grid_size: f32,
+) -> HitboxPaintedMask {
+    resolved_hitbox_mask(template, entry, grid_size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefers_specific_gate_and_fence_entries() {
+        let mut config = HitboxConfig::new();
+        config.insert("gate".to_string(), HitboxConfigEntry::Legacy(99.0));
+        config.insert("fence".to_string(), HitboxConfigEntry::Legacy(42.0));
+        config.insert(
+            "fence_gate".to_string(),
+            HitboxConfigEntry::Painted(HitboxPaintedMask {
+                reference_scale: 2.0,
+                blocked_cells: vec![[1, 0]],
+            }),
+        );
+        config.insert(
+            "fence_planksDouble".to_string(),
+            HitboxConfigEntry::Painted(HitboxPaintedMask {
+                reference_scale: 2.0,
+                blocked_cells: vec![[2, 0]],
+            }),
+        );
+
+        let gate_entry = find_hitbox_config_entry(&config, "gate").unwrap();
+        let fence_entry = find_hitbox_config_entry(&config, "fence").unwrap();
+
+        match gate_entry {
+            HitboxConfigEntry::Painted(mask) => assert_eq!(mask.blocked_cells, vec![[1, 0]]),
+            HitboxConfigEntry::Legacy(_) => panic!("expected painted gate entry"),
+        }
+
+        match fence_entry {
+            HitboxConfigEntry::Painted(mask) => assert_eq!(mask.blocked_cells, vec![[2, 0]]),
+            HitboxConfigEntry::Legacy(_) => panic!("expected painted fence entry"),
+        }
+    }
+
+    #[test]
+    fn painted_mask_rotation_matches_world_rotation() {
+        let mask = HitboxPaintedMask {
+            reference_scale: 1.0,
+            blocked_cells: vec![[1, 0]],
+        };
+
+        assert!(is_point_in_painted_mask(
+            Vec3::ZERO,
+            std::f32::consts::FRAC_PI_2,
+            1.0,
+            &mask,
+            1.0,
+            vec3(0.0, 0.0, -1.0),
+        ));
+        assert!(!is_point_in_painted_mask(
+            Vec3::ZERO,
+            std::f32::consts::FRAC_PI_2,
+            1.0,
+            &mask,
+            1.0,
+            vec3(1.0, 0.0, 0.0),
+        ));
+    }
+
+    #[test]
+    fn painted_mask_blocks_cardinal_rotations_in_grid_queries() {
+        let mask = HitboxPaintedMask {
+            reference_scale: 2.0,
+            blocked_cells: vec![[-2, 0], [-1, 0], [0, 0], [1, 0], [2, 0]],
+        };
+        let template = GltfTemplate {
+            primitives: Vec::new(),
+            nodes: Vec::new(),
+            footprint_radius: 0.0,
+        };
+        let config = HitboxConfig::from([(
+            "fence_planksDouble".to_string(),
+            HitboxConfigEntry::Painted(mask),
+        )]);
+
+        let cases = [
+            (0.0, vec3(1.0, 0.0, 0.0)),
+            (std::f32::consts::FRAC_PI_2, vec3(0.0, 0.0, -1.0)),
+            (std::f32::consts::PI, vec3(-1.0, 0.0, 0.0)),
+            (std::f32::consts::FRAC_PI_2 * 3.0, vec3(0.0, 0.0, 1.0)),
+        ];
+
+        for (rotation, blocked_point) in cases {
+            let mut grid = vec![vec![true; 21]; 21];
+            apply_hitbox_blocking(
+                &mut grid,
+                &template,
+                "fence_planksDouble",
+                Vec3::ZERO,
+                rotation,
+                2.0,
+                &config,
+                0.5,
+                21,
+                21,
+            );
+
+            let gx = world_to_grid_index(blocked_point.x, 0.5, 21) as usize;
+            let gz = world_to_grid_index(blocked_point.z, 0.5, 21) as usize;
+            assert!(
+                !grid[gx][gz],
+                "expected blocked cell for rotation {rotation} at {blocked_point:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn gate_leaf_mesh_moves_between_closed_and_open() {
+        let template = load_glb_template_sync("assets/world_models/fence_gate.glb")
+            .expect("gate template should load");
+        let closed = instantiate_gate(&template, Vec3::ZERO, 0.0, 2.0, 0.0);
+        let open = instantiate_gate(&template, Vec3::ZERO, 0.0, 2.0, 1.0);
+
+        let closed_positions: Vec<Vec3> = closed
+            .iter()
+            .flat_map(|mesh| mesh.vertices.iter().map(|v| v.position))
+            .collect();
+        let open_positions: Vec<Vec3> = open
+            .iter()
+            .flat_map(|mesh| mesh.vertices.iter().map(|v| v.position))
+            .collect();
+
+        assert_eq!(closed_positions.len(), open_positions.len());
+        let max_delta = closed_positions
+            .iter()
+            .zip(open_positions.iter())
+            .map(|(closed, open)| (*closed - *open).length())
+            .fold(0.0_f32, f32::max);
+        println!("gate max vertex delta: {max_delta}");
+        assert!(
+            closed_positions
+                .iter()
+                .zip(open_positions.iter())
+                .any(|(closed, open)| (*closed - *open).length_squared() > 0.01),
+            "expected open gate mesh to differ from closed mesh"
+        );
+    }
+}
+
 pub struct WorldSimulation {
     pub templates: HashMap<String, GltfTemplate>,
     pub grid_size: f32,
@@ -384,6 +730,9 @@ pub struct WorldSimulation {
     pub walkability_grid: Vec<Vec<bool>>,
     pub pathfinding_grid: Vec<Vec<bool>>,
     pub placements: Vec<ModelPlacement>,
+    pub hitbox_config: HitboxConfig,
+    pub last_hot_reload_check: std::time::Instant,
+    pub hitbox_mtime: Option<std::time::SystemTime>,
 }
 
 impl WorldSimulation {
@@ -639,6 +988,9 @@ impl WorldSimulation {
             walkability_grid,
             pathfinding_grid,
             placements,
+            hitbox_config,
+            last_hot_reload_check: std::time::Instant::now(),
+            hitbox_mtime: std::fs::metadata("hitbox_config.json").ok().and_then(|m| m.modified().ok()),
         }
     }
 
@@ -685,12 +1037,35 @@ impl WorldSimulation {
     }
 
     pub fn is_walkable(&self, world_pos: Vec3) -> bool {
-        let x = ((world_pos.x / self.grid_size).round() + (self.width / 2) as f32) as i32;
-        let z = ((world_pos.z / self.grid_size).round() + (self.height / 2) as f32) as i32;
+        let x = world_to_grid_index(world_pos.x, self.grid_size, self.width);
+        let z = world_to_grid_index(world_pos.z, self.grid_size, self.height);
         if x < 0 || x >= self.width || z < 0 || z >= self.height {
             return false;
         }
         self.walkability_grid[x as usize][z as usize]
+    }
+
+    pub fn check_hot_reload(&mut self) -> bool {
+        if self.last_hot_reload_check.elapsed().as_secs_f32() < 1.0 {
+            return false;
+        }
+        self.last_hot_reload_check = std::time::Instant::now();
+
+        if let Ok(m) = std::fs::metadata("hitbox_config.json") {
+            if let Ok(mtime) = m.modified() {
+                if Some(mtime) != self.hitbox_mtime {
+                    self.hitbox_mtime = Some(mtime);
+                    if let Ok(json) = std::fs::read_to_string("hitbox_config.json") {
+                        if let Ok(config) = serde_json::from_str::<HitboxConfig>(&json) {
+                            self.hitbox_config = config;
+                            println!("[HOT RELOAD] Reloaded hitbox_config.json (Simulation)");
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -700,6 +1075,10 @@ pub struct WorldEnvironment {
 }
 
 impl WorldEnvironment {
+    pub fn check_hot_reload(&mut self) -> bool {
+        self.sim.check_hot_reload()
+    }
+
     pub async fn new(
         tile_width: i32,
         tile_height: i32,

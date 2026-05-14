@@ -2,25 +2,57 @@ use macroquad::prelude::*;
 
 pub struct GameCamera {
     pub camera: Camera3D,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
 }
 
 impl GameCamera {
     pub fn new(target: Vec3) -> Self {
-        let position = vec3(target.x, 15.0, target.z + 12.0);
-        Self {
+        let mut camera = Self {
             camera: Camera3D {
-                position,
+                position: Vec3::ZERO,
                 target,
                 up: vec3(0.0, 1.0, 0.0),
                 ..Default::default()
             },
-        }
+            yaw: 0.0,
+            pitch: (15.0_f32).atan2(12.0),
+            distance: (15.0_f32 * 15.0 + 12.0_f32 * 12.0).sqrt(),
+        };
+        camera.update(target);
+        camera
     }
 
     pub fn update(&mut self, target: Vec3) {
-        // Lock camera to the hero (WC3 allows panning, which we can add later)
-        self.camera.position = vec3(target.x, 15.0, target.z + 12.0);
         self.camera.target = target;
+        self.rebuild_position();
+    }
+
+    pub fn orbit(&mut self, delta_x: f32, delta_y: f32, target: Vec3) {
+        const ORBIT_SENSITIVITY: f32 = 0.01;
+        self.yaw -= delta_x * ORBIT_SENSITIVITY;
+        self.pitch = (self.pitch + delta_y * ORBIT_SENSITIVITY).clamp(-1.25, 1.45);
+        self.camera.target = target;
+        self.rebuild_position();
+    }
+
+    pub fn reset_view(&mut self, target: Vec3) {
+        self.yaw = 0.0;
+        self.pitch = (15.0_f32).atan2(12.0);
+        self.distance = (15.0_f32 * 15.0 + 12.0_f32 * 12.0).sqrt();
+        self.camera.target = target;
+        self.rebuild_position();
+    }
+
+    fn rebuild_position(&mut self) {
+        let horizontal = self.distance * self.pitch.cos();
+        let offset = vec3(
+            horizontal * self.yaw.sin(),
+            self.distance * self.pitch.sin(),
+            horizontal * self.yaw.cos(),
+        );
+        self.camera.position = self.camera.target + offset;
     }
 
     pub fn get_mouse_ray_intersection(&self) -> Option<Vec3> {

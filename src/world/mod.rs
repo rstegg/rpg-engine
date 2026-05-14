@@ -1,3 +1,4 @@
+pub mod chunk;
 pub mod cluster;
 pub mod environment;
 pub mod pathfinding;

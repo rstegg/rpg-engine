@@ -3,6 +3,8 @@ use crate::entities::character::{CharacterAppearance, CharacterTextures, LayerCa
 use crate::entities::player::Stats;
 use macroquad::prelude::*;
 
+const OFFLINE_ENEMY_SPAWNING_ENABLED: bool = false;
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum EnemyState {
     Idle,
@@ -83,7 +85,7 @@ impl EnemyArchetype {
         Self {
             appearance: CharacterAppearance {
                 skin: "Human1".to_string(),
-                shoes: Some("Shoes".to_string()), // Placeholder if they exist, or None
+                shoes: Some("Shoes".to_string()), 
                 clothes: Some("Shirt".to_string()),
                 gloves: None,
                 hairstyle: Some("Hair1".to_string()),
@@ -231,7 +233,7 @@ impl EnemyDirector {
         Self {
             active_enemies: Vec::new(),
             preloaded_races,
-            wave_timer: 5.0, // First wave soon
+            wave_timer: 5.0,
             wave_interval: 10.0,
             next_enemy_id: 1,
             config,
@@ -243,17 +245,18 @@ impl EnemyDirector {
         dt: f32,
         hero: &mut crate::entities::player::Hero,
         combat_text: &mut crate::ui::combat_text::CombatTextManager,
-        env: &crate::world::environment::WorldEnvironment,
+        world: &crate::world::chunk::ChunkedWorld,
     ) {
-        self.wave_timer -= dt;
-        if self.wave_timer <= 0.0 {
-            self.wave_timer = self.wave_interval;
-            self.spawn_wave(hero.pos, env);
+        if OFFLINE_ENEMY_SPAWNING_ENABLED {
+            self.wave_timer -= dt;
+            if self.wave_timer <= 0.0 {
+                self.wave_timer = self.wave_interval;
+                self.spawn_wave(hero.pos, world);
+            }
         }
 
         let hero_pos = hero.pos;
 
-        // Update enemy timers and cleanup dead
         for enemy in &mut self.active_enemies {
             if enemy.damage_flash_timer > 0.0 {
                 enemy.damage_flash_timer -= dt;
@@ -262,7 +265,6 @@ impl EnemyDirector {
                 enemy.attack_timer -= dt;
             }
 
-            // Hurt stun — skip AI while stunned (matches server hurt_timer behavior)
             if enemy.damage_flash_timer > 0.0 && enemy.state != EnemyState::Dead {
                 enemy.anim.set_state(AnimationState::Hurt);
                 enemy.anim.update(dt, enemy.stats.get_movement_speed(), 1.0);
@@ -274,68 +276,68 @@ impl EnemyDirector {
                 let dist = to_hero.length();
 
                 if dist < 1.5 {
-                    // Attack
                     if enemy.attack_timer <= 0.0 {
                         enemy.state = EnemyState::Attacking;
                         enemy.anim.set_state(AnimationState::Sword);
                         enemy.anim.set_direction(to_hero);
-                        enemy.attack_timer = 1.0; // Attack cooldown
+                        enemy.attack_timer = 1.0;
                         
-                        // Deal damage
                         let dmg = enemy.stats.strength;
                         hero.stats.current_hp -= dmg;
                         if hero.stats.current_hp <= 0 {
                             hero.stats.current_hp = 0;
                             hero.is_dead = true;
                         }
-                        // Spawn combat text on hero (red)
                         combat_text.spawn(hero.pos, dmg, false, RED);
                     } else {
                         enemy.state = EnemyState::Idle;
                         enemy.anim.set_state(AnimationState::Idle);
                     }
                 } else if dist < 15.0 {
-                    // Chase
+                    // Town Biome Safe-Zone Logic
+                    let chunk_coord = crate::world::chunk::ChunkCoord::from_world_pos(enemy.pos);
+                    let is_safe_zone = world.chunks.get(&chunk_coord)
+                        .map(|c| c.biome == crate::world::chunk::BiomeType::Town)
+                        .unwrap_or(false);
+
+                    if is_safe_zone {
+                        enemy.state = EnemyState::Idle;
+                        enemy.anim.set_state(AnimationState::Idle);
+                        enemy.current_path.clear();
+                        continue;
+                    }
+
                     enemy.state = EnemyState::Chasing;
                     let speed = enemy.stats.get_movement_speed();
 
                     enemy.path_timer -= dt;
                     if enemy.path_timer <= 0.0 {
-                        enemy.path_timer = macroquad::rand::gen_range(0.5, 1.0); // Stagger A* calls
+                        enemy.path_timer = macroquad::rand::gen_range(0.5, 1.0);
 
-                        // If line of sight is clear, just B-line
-                        if crate::world::pathfinding::line_of_sight(
+                        if crate::world::pathfinding::line_of_sight_fn(
                             enemy.pos,
                             hero.pos,
-                            env.sim.grid_size,
-                            env.sim.width,
-                            env.sim.height,
-                            &env.sim.pathfinding_grid,
+                            |p| world.is_walkable(p)
                         ) {
                             enemy.current_path.clear();
                             enemy.target_pos = hero.pos;
                         } else {
-                            // Run A*
-                            if let Some(path) = crate::world::pathfinding::find_path(
+                            if let Some(path) = crate::world::pathfinding::find_path_fn(
                                 enemy.pos,
                                 hero.pos,
-                                env.sim.grid_size,
-                                env.sim.width,
-                                env.sim.height,
-                                &env.sim.pathfinding_grid,
+                                0.5,
+                                |p| world.is_walkable(p)
                             ) {
                                 enemy.current_path = path;
                                 if let Some(first) = enemy.current_path.first() {
                                     enemy.target_pos = *first;
                                 }
                             } else {
-                                enemy.target_pos = hero.pos; // fallback
+                                enemy.target_pos = hero.pos;
                             }
                         }
                     }
 
-                    // Move towards target_pos (which might be hero.pos or next waypoint)
-                    // If target_pos is hero.pos, update it dynamically if we don't have a path
                     if enemy.current_path.is_empty() {
                         enemy.target_pos = hero.pos;
                     }
@@ -345,27 +347,13 @@ impl EnemyDirector {
 
                     if dist_to_target > 0.1 {
                         let desired = enemy.pos + to_target.normalize() * speed * dt;
-                        let new_pos = crate::world::pathfinding::slide_move(
+                        let new_pos = crate::world::pathfinding::slide_move_world(
                             enemy.pos,
                             desired,
-                            0.35, // enemy radius approx
-                            env.sim.grid_size,
-                            env.sim.width,
-                            env.sim.height,
-                            &env.sim.walkability_grid,
+                            0.35,
+                            |p| world.is_walkable(p)
                         );
-
-                        // Clamp to world boundaries
-                        let margin = 0.45;
-                        let hw = (env.sim.width as f32 * env.sim.grid_size) / 2.0 - margin;
-                        let hh = (env.sim.height as f32 * env.sim.grid_size) / 2.0 - margin;
-                        
-                        enemy.pos = vec3(
-                            new_pos.x.clamp(-hw, hw),
-                            new_pos.y,
-                            new_pos.z.clamp(-hh, hh),
-                        );
-
+                        enemy.pos = new_pos;
                         enemy.anim.set_state(AnimationState::Walk);
                         enemy.anim.set_direction(to_target);
                     } else if !enemy.current_path.is_empty() {
@@ -375,27 +363,20 @@ impl EnemyDirector {
                         }
                     }
                 } else {
-                    // Idle
                     enemy.state = EnemyState::Idle;
                     enemy.anim.set_state(AnimationState::Idle);
                 }
             } else if enemy.state == EnemyState::Attacking {
-                // If attack animation finished, go back to idle
                 let frames = enemy.anim.get_frame_indices();
                 if enemy.anim.current_frame >= (frames.len() as f32 - 0.1) {
                     enemy.state = EnemyState::Idle;
                 }
             }
-
-            // Animate
             enemy.anim.update(dt, enemy.stats.get_movement_speed(), 1.0);
         }
 
-        // Clean up fully dead enemies
         self.active_enemies.retain(|e| {
             if e.state == EnemyState::Dead {
-                // Keep body around until death animation finishes (or some timer)
-                // Assuming death animation is the last frame
                 let frames = e.anim.get_frame_indices();
                 let is_anim_finished = e.anim.current_frame >= (frames.len() as f32 - 1.0);
                 !is_anim_finished 
@@ -405,7 +386,7 @@ impl EnemyDirector {
         });
     }
 
-    fn spawn_wave(&mut self, center_pos: Vec3, env: &crate::world::environment::WorldEnvironment) {
+    fn spawn_wave(&mut self, center_pos: Vec3, world: &crate::world::chunk::ChunkedWorld) {
         if self.preloaded_races.is_empty() {
             return;
         }
@@ -416,32 +397,28 @@ impl EnemyDirector {
             let race = &self.preloaded_races[race_idx];
             
             let mut spawn_pos = center_pos;
-            let hw = (env.sim.width as f32 * env.sim.grid_size) / 2.0 - 0.5;
-            let hh = (env.sim.height as f32 * env.sim.grid_size) / 2.0 - 0.5;
 
-            // Try up to 10 times to find a walkable spawn location
             for _ in 0..10 {
                 let angle = macroquad::rand::gen_range(0.0, std::f32::consts::PI * 2.0);
                 let distance = macroquad::rand::gen_range(8.0, 15.0);
                 let candidate_pos = center_pos + vec3(angle.cos() * distance, 0.0, angle.sin() * distance);
                 
-                // Clamp candidate to world bounds
-                let candidate_pos = vec3(
-                    candidate_pos.x.clamp(-hw, hw),
-                    candidate_pos.y,
-                    candidate_pos.z.clamp(-hh, hh),
-                );
+                let chunk_coord = crate::world::chunk::ChunkCoord::from_world_pos(candidate_pos);
+                let is_town = world.chunks.get(&chunk_coord)
+                    .map(|c| c.biome == crate::world::chunk::BiomeType::Town)
+                    .unwrap_or(false);
 
-                if crate::world::pathfinding::is_walkable_with_radius(
+                if is_town {
+                    continue;
+                }
+
+                if crate::world::pathfinding::is_walkable_with_radius_fn(
                     candidate_pos,
                     0.35,
-                    env.sim.grid_size,
-                    env.sim.width,
-                    env.sim.height,
-                    &env.sim.walkability_grid,
+                    |p| world.is_walkable(p)
                 ) {
                     spawn_pos = candidate_pos;
-                    break; // Found a valid spot
+                    break;
                 }
             }
 

@@ -20,6 +20,7 @@ pub struct NetClient {
     last_ping_time: Instant,
     pending_ping: Option<f64>,
     pub pending_map: Option<(Vec<(String, String)>, Vec<ModelPlacementNet>)>,
+    pub pending_chunks: Vec<ChunkDataNet>,
     pub latest_msg: Option<ServerMessage>,
 
     // ─── Connection robustness ───
@@ -46,6 +47,7 @@ pub struct WorldSnapshot {
     pub players: Vec<PlayerState>,
     pub enemies: Vec<EnemyStateNet>,
     pub effects: Vec<EffectState>,
+    pub gates: Vec<GateStateNet>,
 }
 
 impl NetClient {
@@ -72,6 +74,7 @@ impl NetClient {
             last_ping_time: now,
             pending_ping: None,
             pending_map: None,
+            pending_chunks: Vec::new(),
             latest_msg: None,
             connect_start: now,
             last_server_packet: now,
@@ -250,12 +253,14 @@ impl NetClient {
                 players,
                 enemies,
                 effects,
+                gates,
             } => {
                 self.latest_world = Some(WorldSnapshot {
                     tick,
                     players,
                     enemies,
                     effects,
+                    gates,
                 });
             }
             ServerMessage::Pong {
@@ -275,6 +280,11 @@ impl NetClient {
             }
             ServerMessage::GameOver => {
                 // GameState is updated in main.rs loop by checking latest_msg
+            }
+            ServerMessage::ChunkData { coord_x, coord_z, biome, palette, placements } => {
+                self.pending_chunks.push(ChunkDataNet {
+                    coord_x, coord_z, biome, palette, placements
+                });
             }
         }
     }

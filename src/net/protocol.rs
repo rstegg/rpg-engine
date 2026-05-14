@@ -80,6 +80,14 @@ pub enum ServerMessage {
         palette: Vec<(String, String)>, // (model, file)
         placements: Vec<ModelPlacementNet>,
     },
+    /// A specific chunk of map data.
+    ChunkData {
+        coord_x: i32,
+        coord_z: i32,
+        biome: String,
+        palette: Vec<(String, String)>,
+        placements: Vec<ModelPlacementNet>,
+    },
     /// Server is full or version mismatch.
     JoinRejected { reason: String },
     /// Your character list after login.
@@ -109,6 +117,7 @@ pub enum ServerMessage {
         players: Vec<PlayerState>,
         enemies: Vec<EnemyStateNet>,
         effects: Vec<EffectState>,
+        gates: Vec<GateStateNet>,
     },
     /// Response to client Ping.
     Pong { client_time: f64, server_time: f64 },
@@ -177,12 +186,28 @@ pub struct EnemyStateNet {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateStateNet {
+    pub x: f32,
+    pub z: f32,
+    pub open_progress: f32, // 0.0 closed, 1.0 open
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPlacementNet {
     pub model_idx: u16,
     pub position: [f32; 3],
     pub rotation: f32,
     pub scale: f32,
     pub blocks_movement: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ChunkDataNet {
+    pub coord_x: i32,
+    pub coord_z: i32,
+    pub biome: String,
+    pub palette: Vec<(String, String)>,
+    pub placements: Vec<ModelPlacementNet>,
 }
 
 /// Network-friendly character appearance (mirrors CharacterAppearance but lightweight).

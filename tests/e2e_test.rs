@@ -39,21 +39,34 @@ fn test_headless_client_server() {
         headgear: None,
         addon: None,
     };
-    
-    let mut client = NetClient::connect("127.0.0.1:7879", "TestPlayer", appearance)
+    // 2. Connect client
+    let mut client = NetClient::connect("127.0.0.1:7879", "TestPlayer")
         .expect("Failed to connect to server");
 
-    // 3. Wait for MapData
-    let mut connected = false;
-    for _ in 0..50 {
+    // 3. Select character flow (Wait for list, select first or create)
+    let mut joined = false;
+    for _ in 0..100 {
         client.update();
-        if client.connected && client.pending_map.is_some() {
-            connected = true;
+        if let Some(chars) = client.pending_characters.take() {
+            if chars.is_empty() {
+                client.send(&ClientMessage::CreateCharacter {
+                    name: "TestHero".into(),
+                    appearance: appearance.clone(),
+                });
+            } else {
+                client.send(&ClientMessage::SelectCharacter { character_id: chars[0].id });
+            }
+        }
+        if let Some(created) = client.pending_character_created.take() {
+            client.send(&ClientMessage::SelectCharacter { character_id: created.id });
+        }
+        if client.connected {
+            joined = true;
             break;
         }
         thread::sleep(Duration::from_millis(100));
     }
-    assert!(connected, "Client failed to join and receive MapData");
+    assert!(joined, "Client failed to join the game world");
     
     // 4. Toggle God Mode
     client.send(&ClientMessage::DebugToggleGodMode);
