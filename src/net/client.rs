@@ -16,6 +16,7 @@ pub struct NetClient {
     pub connected: bool,
     pub latest_world: Option<WorldSnapshot>,
     pub remote_appearances: std::collections::HashMap<PlayerId, CharacterAppearanceNet>,
+    pub remote_names: std::collections::HashMap<PlayerId, String>,
     pub ping_ms: f64,
     last_ping_time: Instant,
     pending_ping: Option<f64>,
@@ -70,6 +71,7 @@ impl NetClient {
             connected: false,
             latest_world: None,
             remote_appearances: std::collections::HashMap::new(),
+            remote_names: std::collections::HashMap::new(),
             ping_ms: 0.0,
             last_ping_time: now,
             pending_ping: None,
@@ -242,10 +244,12 @@ impl NetClient {
             } => {
                 println!("[NET] Player joined: {} ({})", name, id);
                 self.remote_appearances.insert(id, appearance);
+                self.remote_names.insert(id, name);
             }
             ServerMessage::PlayerLeft { id } => {
                 println!("[NET] Player left: {}", id);
                 self.remote_appearances.remove(&id);
+                self.remote_names.remove(&id);
             }
             ServerMessage::WorldState {
                 tick,

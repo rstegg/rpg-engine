@@ -68,6 +68,7 @@ pub enum TargetingState {
 }
 
 pub struct Hero {
+    pub name: String,
     pub pos: Vec3,
     pub target_pos: Vec3,
     pub current_path: Vec<Vec3>,

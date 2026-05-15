@@ -240,6 +240,7 @@ async fn main() {
     let mut char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
 
     let mut hero = Hero {
+        name: String::new(),
         pos: vec3(0.0, 0.0, 0.0),
         target_pos: vec3(0.0, 0.0, 0.0),
         current_path: Vec::new(),
@@ -664,6 +665,7 @@ async fn main() {
                     if hovered && clicked && !del_hover {
                         if let Some(ref nc) = net_client {
                             nc.send(&ClientMessage::SelectCharacter { character_id: ch.id });
+                            hero.name = ch.name.clone();
                         }
                     }
                 }
@@ -1641,6 +1643,7 @@ async fn main() {
                 };
 
                 let mut hp_bars_2d = Vec::new();
+                let mut nameplates_2d = Vec::new();
                 for (pos, hp, max_hp, scale) in enemy_targets {
                     let hp_pct = hp as f32 / max_hp as f32;
                     if hp_pct < 1.0 && hp_pct > 0.0 {
@@ -1650,6 +1653,37 @@ async fn main() {
                             let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
                             let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
                             hp_bars_2d.push((x, y, hp_pct));
+                        }
+                    }
+                }
+
+                // Project player nameplates
+                {
+                    let matrix = game_camera.camera.matrix();
+                    // Local Hero
+                    if !hero.name.is_empty() {
+                        let screen_pos = matrix.project_point3(hero.pos + vec3(0.0, 2.5, 0.0));
+                        if screen_pos.z >= -1.0 && screen_pos.z <= 1.0 {
+                            let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
+                            let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
+                            nameplates_2d.push((x, y, hero.name.clone(), WHITE));
+                        }
+                    }
+                    // Remote Players
+                    if let Some(ref client) = net_client {
+                        if let Some(ref world) = client.latest_world {
+                            for ps in &world.players {
+                                if Some(ps.id) == client.my_id { continue; }
+                                if let Some(name) = client.remote_names.get(&ps.id) {
+                                    let pos = *remote_player_positions.get(&ps.id).unwrap_or(&vec3(ps.x, 0.0, ps.z));
+                                    let screen_pos = matrix.project_point3(pos + vec3(0.0, 2.3, 0.0));
+                                    if screen_pos.z >= -1.0 && screen_pos.z <= 1.0 {
+                                        let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
+                                        let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
+                                        nameplates_2d.push((x, y, name.clone(), Color::new(0.8, 0.9, 1.0, 1.0)));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1675,6 +1709,15 @@ async fn main() {
                     draw_rectangle(x - bar_w / 2.0 - 1.0, y - bar_h / 2.0 - 1.0, bar_w + 2.0, bar_h + 2.0, BLACK);
                     draw_rectangle(x - bar_w / 2.0, y - bar_h / 2.0, bar_w, bar_h, RED);
                     draw_rectangle(x - bar_w / 2.0, y - bar_h / 2.0, bar_w * hp_pct, bar_h, GREEN);
+                }
+
+                for (x, y, name, color) in nameplates_2d {
+                    let font_size = 20.0;
+                    let tw = measure_text(&name, None, font_size as u16, 1.0).width;
+                    let bg_w = tw + 10.0;
+                    let bg_h = 24.0;
+                    draw_rectangle(x - bg_w / 2.0, y - bg_h / 2.0, bg_w, bg_h, Color::new(0.0, 0.0, 0.0, 0.6));
+                    draw_text(&name, x - tw / 2.0, y + 6.0, font_size, color);
                 }
                 
                 ui::hud::draw_hud(&hero, &assets);
