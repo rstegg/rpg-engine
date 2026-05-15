@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const MAX_PLAYERS: usize = 16;
 
 /// Server tick rate in Hz (how many times per second the server broadcasts world state).
-pub const SERVER_TICK_RATE: u64 = 20;
+pub const SERVER_TICK_RATE: u64 = 30;
 
 /// Default server port.
 pub const DEFAULT_PORT: u16 = 7878;

@@ -527,7 +527,8 @@ fn main() {
         }
 
         // Broadcast World State
-        if last_broadcast.elapsed().as_secs_f64() > 0.05 {
+        // Broadcast world state to all players at the defined tick rate
+        if last_broadcast.elapsed().as_secs_f64() > (1.0 / SERVER_TICK_RATE as f64) {
             last_broadcast = Instant::now();
             let mut player_states = Vec::new();
             for p in players.values() {
