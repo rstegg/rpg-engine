@@ -302,4 +302,19 @@ impl NetClient {
     pub fn disconnect(&self) {
         self.send(&ClientMessage::Disconnect);
     }
+
+    /// Reset connection state to re-initiate login (e.g. going back to character select).
+    pub fn reset_for_login(&mut self) {
+        self.connected = false;
+        self.connection_timed_out = false;
+        self.server_lost = false;
+        self.session_token = None;
+        self.my_id = None;
+        let now = Instant::now();
+        self.connect_start = now;
+        self.last_server_packet = now;
+        self.pending_characters = None;
+        self.pending_character_created = None;
+        self.pending_character_deleted = None;
+    }
 }

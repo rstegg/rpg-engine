@@ -319,6 +319,7 @@ async fn main() {
     }
 
     let mut clipboard = Clipboard::new().ok();
+    let mut show_escape_menu = false;
 
     loop {
         clear_background(DARKGRAY);
@@ -407,6 +408,58 @@ async fn main() {
             if game_state == GameState::HitboxCalibration {
                 hitbox_editor.draw_egui(ctx);
             }
+
+            if show_escape_menu {
+                egui::Window::new("Escape Menu")
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .collapsible(false)
+                    .resizable(false)
+                    .title_bar(false)
+                    .frame(egui::Frame::window(&ctx.style()).fill(egui::Color32::from_rgba_unmultiplied(15, 12, 28, 245)))
+                    .show(ctx, |ui| {
+                        ui.set_width(240.0);
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(15.0);
+                            ui.heading(egui::RichText::new("SYSTEM MENU").color(egui::Color32::from_rgb(200, 160, 80)).strong());
+                            ui.add_space(25.0);
+
+                            let btn_size = egui::vec2(180.0, 32.0);
+
+                            if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("RESUME").size(16.0))).clicked() {
+                                show_escape_menu = false;
+                            }
+
+                            ui.add_space(12.0);
+
+                            if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("CHARACTER SELECT").size(16.0))).clicked() {
+                                if let Some(ref mut nc) = net_client {
+                                    nc.send(&ClientMessage::Disconnect);
+                                    nc.reset_for_login();
+                                    // Send login again to get back to character list
+                                    nc.send(&ClientMessage::Login { 
+                                        version: PROTOCOL_VERSION, 
+                                        username: login_username.clone() 
+                                    });
+                                }
+                                game_state = GameState::Connecting;
+                                show_escape_menu = false;
+                            }
+
+                            ui.add_space(12.0);
+
+                            if ui.add_sized(btn_size, egui::Button::new(egui::RichText::new("LOGOUT").size(16.0).color(egui::Color32::from_rgb(220, 80, 80)))).clicked() {
+                                if let Some(ref nc) = net_client {
+                                    nc.disconnect();
+                                }
+                                net_client = None;
+                                game_state = GameState::Login;
+                                show_escape_menu = false;
+                            }
+
+                            ui.add_space(15.0);
+                        });
+                    });
+            }
         });
 
         // ── Character Buffer Management ──
@@ -491,6 +544,19 @@ async fn main() {
                 if off_btn_hover && clicked {
                     net_client = None;
                     game_state = GameState::Playing;
+                }
+
+                // Quit button
+                let quit_btn_y = off_btn_y + btn_h + 15.0;
+                let quit_btn_hover = mx >= btn_x && mx <= btn_x + btn_w && my >= quit_btn_y && my <= quit_btn_y + btn_h;
+                draw_rectangle(btn_x, quit_btn_y, btn_w, btn_h, if quit_btn_hover { Color::new(0.3, 0.1, 0.1, 1.0) } else { Color::new(0.2, 0.08, 0.08, 1.0) });
+                draw_rectangle_lines(btn_x, quit_btn_y, btn_w, btn_h, 1.0, Color::new(0.5, 0.2, 0.2, 1.0));
+                let qt = "QUIT GAME";
+                let qtw = measure_text(qt, None, 20, 1.0).width;
+                draw_text(qt, btn_x + (btn_w - qtw) / 2.0, quit_btn_y + 30.0, 20.0, Color::new(0.8, 0.4, 0.4, 1.0));
+
+                if quit_btn_hover && clicked {
+                    std::process::exit(0);
                 }
             }
             GameState::CharacterCreation => {
@@ -859,7 +925,11 @@ async fn main() {
                 // Hot reload world data
                 chunk_world.check_hot_reload();
                 world_env.check_hot_reload();
-                if is_key_pressed(KeyCode::C) {
+                if is_key_pressed(KeyCode::Escape) {
+                    show_escape_menu = !show_escape_menu;
+                }
+
+                if is_key_pressed(KeyCode::C) && !show_escape_menu {
                     creator.reset();
                     game_state = GameState::CharacterCreation;
                     continue;
@@ -1158,7 +1228,7 @@ async fn main() {
                         .collect()
                 };
 
-                let cast_event = if !hero.is_dead {
+                let cast_event = if !hero.is_dead && !show_escape_menu {
                     handle_input(
                         &mut hero,
                         &game_camera,
@@ -1185,6 +1255,7 @@ async fn main() {
                     if is_mouse_button_pressed(MouseButton::Right)
                         && hero.targeting_state == TargetingState::None
                         && !hero.is_dead
+                        && !show_escape_menu
                     {
                         if let Some(pos) = game_camera.get_mouse_ray_intersection() {
                             client.send(&ClientMessage::MoveTo { x: pos.x, z: pos.z });
