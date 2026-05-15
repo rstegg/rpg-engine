@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod core;
 mod entities;
 mod net;
@@ -204,7 +205,15 @@ async fn rebuild_world_from_current_placements(
     }
 }
 
-#[macroquad::main("2.5D Indie RPG")]
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "2.5D Indie RPG".to_owned(),
+        fullscreen: true,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() {
     let assets = Assets {
         icon_q: load_or_fallback("assets/ui/arrow-rain-icon.png", BLUE).await,
