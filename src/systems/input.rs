@@ -150,6 +150,7 @@ pub fn handle_input(
                     |p| world.is_walkable_with_radius(p, 0.35)
                 ) {
                     println!("[CLIENT] Line of sight clear to ({:.2}, {:.2}). Set target.", goal.x, goal.z);
+                    hero.last_click_time = std::time::Instant::now();
                     hero.target_pos = goal;
                     hero.current_path.clear();
                 } else {
@@ -166,10 +167,10 @@ pub fn handle_input(
                         }
                         
                         println!("[CLIENT] Obstacle in way. Found path with {} nodes starting from ({:.2}, {:.2})", path.len(), hero.pos.x, hero.pos.z);
+                        hero.last_click_time = std::time::Instant::now();
                         hero.current_path = path;
                         if let Some(first) = hero.current_path.first() {
                             hero.target_pos = *first;
-                            println!("[CLIENT] Player next waypoint: ({:.2}, {:.2})", hero.target_pos.x, hero.target_pos.z);
                         }
                     } else {
                         hero.target_pos = hero.pos;

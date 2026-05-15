@@ -23,6 +23,7 @@ use systems::hitbox_editor::*;
 use ui::character_creator::*;
 use world::environment::{self, HitboxConfig, GltfTemplate};
 use world::chunk::{ChunkedWorld, ChunkCoord};
+use std::time::Instant;
 use world::pathfinding::{self, slide_move_world};
 
 
@@ -249,6 +250,7 @@ async fn main() {
         cooldowns: std::collections::HashMap::new(),
         is_dead: false,
         revive_progress: 0.0,
+        last_click_time: Instant::now(),
     };
 
     let mut hitbox_config: HitboxConfig = match std::fs::read_to_string("hitbox_config.json") {
@@ -939,7 +941,6 @@ async fn main() {
                                     let srv_pos = vec3(ps.x, 0.0, ps.z);
                                     if (hero.pos - srv_pos).length() > 2.0 {
                                         hero.pos = srv_pos;
-                                        println!("[CLIENT] Position hard-snapped to server: ({:.2}, {:.2})", ps.x, ps.z);
                                     } else {
                                         // Use faster lerp for local player to keep pathfinding starts accurate
                                         hero.pos = hero.pos.lerp(srv_pos, 20.0 * delta_time);
@@ -954,14 +955,17 @@ async fn main() {
                                      if srv_dest != my_dest || hero.current_path.is_empty() {
                                          if let Some(dest) = srv_dest {
                                              hero.current_path = ps.current_path.iter().map(|(x, z)| vec3(*x, 0.0, *z)).collect();
-                                             println!("[CLIENT] Destination changed to ({:.2}, {:.2}). Synced {} nodes.", dest.x, dest.z, hero.current_path.len());
                                          } else {
                                              hero.current_path.clear();
                                          }
                                      }
 
-                                     // Always use the server's authoritative target for the look-direction
-                                     hero.target_pos = srv_target;
+                                     // Always use the server's authoritative target for the look-direction,
+                                     // BUT only if we haven't clicked very recently (allow 150ms latency window)
+                                     // OR if the server has clearly already updated to a new target
+                                     if hero.last_click_time.elapsed().as_secs_f32() > 0.15 || (srv_target - hero.target_pos).length() > 0.1 {
+                                         hero.target_pos = srv_target;
+                                     }
 
                                      hero.casting_timer = ps.casting_timer;
                                      hero.stats.current_hp = ps.current_hp;

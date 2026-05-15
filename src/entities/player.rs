@@ -79,4 +79,5 @@ pub struct Hero {
     pub cooldowns: std::collections::HashMap<SpellId, f32>,
     pub is_dead: bool,
     pub revive_progress: f32,
+    pub last_click_time: std::time::Instant,
 }
