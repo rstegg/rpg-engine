@@ -130,6 +130,7 @@ fn main() {
     let mut next_player_id: PlayerId = 1;
     let mut next_enemy_id: u64 = 1;
     let mut next_effect_id: u64 = 1;
+    let mut server_tick: u64 = 0;
 
     let hitbox_config: HitboxConfig = match std::fs::read_to_string("hitbox_config.json") {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
@@ -400,10 +401,17 @@ fn main() {
                 if !in_safe_zone {
                     for (addr, player) in &players {
                         if player.is_dead { continue; }
+                        
+                        // Enemies ignore players in Town
+                        let player_chunk = ChunkCoord::from_world_pos(vec3(player.x, 0.0, player.z));
+                        if world.get_biome_at(player_chunk) == BiomeType::Town { continue; }
+
                         let dx = player.x - enemy.x;
                         let dz = player.z - enemy.z;
                         let dist = (dx * dx + dz * dz).sqrt();
-                        if dist < nearest_dist {
+                        
+                        // Aggro Range: 10.0 meters
+                        if dist < 10.0 && dist < nearest_dist {
                             nearest_dist = dist;
                             nearest_player_id = Some(*addr);
                         }
@@ -622,8 +630,9 @@ fn main() {
                 });
             }
 
+            server_tick += 1;
             let world_msg = ServerMessage::WorldState {
-                tick: 0,
+                tick: server_tick,
                 server_time: 0.0,
                 players: player_states,
                 enemies: enemy_states,
@@ -778,6 +787,52 @@ fn handle_client_message(
                 let effect_id = *next_effect_id;
                 *next_effect_id += 1;
                 effects.push(ActiveEffect { id: effect_id, effect_type: spell, x: target_x, z: target_z, timer: 1.0 });
+
+                // Authoritative Damage Application
+                let (radius, damage) = match spell {
+                    0 => (3.5, 20), // Q: Arrow Rain
+                    1 => (1.5, 30), // W: Unit Target
+                    2 => (1.5, 20), // E: Unit Target
+                    3 => (1.5, 40), // R: Unit Target
+                    _ => (0.0, 0),
+                };
+
+                if damage > 0 {
+                    let mut hits = 0;
+                    for enemy in enemies.values_mut() {
+                        if enemy.health <= 0 { continue; }
+                        let dx = enemy.x - target_x;
+                        let dz = enemy.z - target_z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        if dist <= radius {
+                            enemy.health -= damage;
+                            enemy.hurt_timer = 0.3;
+                            hits += 1;
+                            
+                            // Apply pushback away from target point
+                            let to_enemy_x = enemy.x - target_x;
+                            let to_enemy_z = enemy.z - target_z;
+                            let len = (to_enemy_x * to_enemy_x + to_enemy_z * to_enemy_z).sqrt();
+                            if len > 0.01 {
+                                let push_dist = 0.5;
+                                enemy.x += (to_enemy_x / len) * push_dist;
+                                enemy.z += (to_enemy_z / len) * push_dist;
+                                enemy.target_x = enemy.x;
+                                enemy.target_z = enemy.z;
+                                enemy.current_path.clear();
+                            }
+                            
+                            if enemy.health <= 0 {
+                                enemy.health = 0;
+                                enemy.anim_state = 7; // Death animation
+                            }
+                        }
+                    }
+                    if hits > 0 {
+                        println!("[SERVER] Spell {} cast by player {} hit {} enemies (Target: {:.1}, {:.1})", spell, player.id, hits, target_x, target_z);
+                    }
+                }
+
                 if spell == 99 {
                     // Dev spell: Kill all enemies
                     for enemy in enemies.values_mut() {

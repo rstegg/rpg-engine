@@ -1187,6 +1187,7 @@ async fn main() {
                             SpellId::E => 2,
                             SpellId::R => 3,
                         };
+                        println!("[CLIENT] Sending CastSpell {} to ({:.1}, {:.1})", spell_id, ev.target_x, ev.target_z);
                         client.send(&ClientMessage::CastSpell {
                             spell: spell_id,
                             target_x: ev.target_x,
@@ -1210,21 +1211,15 @@ async fn main() {
                                     let dx = enemy.pos.x - ev.target_x;
                                     let dz = enemy.pos.z - ev.target_z;
                                     let dist = (dx * dx + dz * dz).sqrt();
-                                    if dist <= 3.0 {
+                                    if dist <= 3.5 {
                                         let dmg = 20;
                                         enemy.take_damage(dmg);
                                         combat_text_mgr.spawn(enemy.pos, dmg, true, YELLOW);
                                     }
                                 }
                             }
-                            spell => {
+                            _ => {
                                 // Unit-target damage (W, E, R)
-                                let dmg = match spell {
-                                    SpellId::W => 30,
-                                    SpellId::E => 20,
-                                    SpellId::R => 40,
-                                    _ => 0,
-                                };
                                 // Find the closest enemy to the target position
                                 let mut closest_idx: Option<usize> = None;
                                 let mut min_dist: f32 = 1.5;
@@ -1241,6 +1236,12 @@ async fn main() {
                                 if let Some(idx) = closest_idx {
                                     let hero_pos = hero.pos;
                                     let enemy = &mut enemy_director.active_enemies[idx];
+                                    let dmg = match ev.spell {
+                                        SpellId::W => 30,
+                                        SpellId::E => 20,
+                                        SpellId::R => 40,
+                                        _ => 0,
+                                    };
                                     enemy.take_damage(dmg);
                                     combat_text_mgr.spawn(enemy.pos, dmg, true, YELLOW);
                                     // Knockback
@@ -1645,7 +1646,7 @@ async fn main() {
                     if hp_pct < 1.0 && hp_pct > 0.0 {
                         let matrix = game_camera.camera.matrix();
                         let screen_pos = matrix.project_point3(pos + vec3(0.0, scale * 1.1, 0.0));
-                        if screen_pos.z >= 0.0 && screen_pos.z <= 1.0 {
+                        if screen_pos.z >= -1.0 && screen_pos.z <= 1.0 {
                             let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
                             let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
                             hp_bars_2d.push((x, y, hp_pct));

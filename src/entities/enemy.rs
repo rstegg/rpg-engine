@@ -27,6 +27,7 @@ pub struct Enemy {
     pub path_timer: f32,
     pub textures: Vec<Texture2D>,
     pub damage_flash_timer: f32,
+    pub spawn_pos: Vec3,
 }
 
 impl Enemy {
@@ -52,6 +53,7 @@ impl Enemy {
             path_timer: macroquad::rand::gen_range(0.0, 0.5),
             textures,
             damage_flash_timer: 0.0,
+            spawn_pos: pos,
         }
     }
 
@@ -293,17 +295,24 @@ impl EnemyDirector {
                         enemy.state = EnemyState::Idle;
                         enemy.anim.set_state(AnimationState::Idle);
                     }
-                } else if dist < 15.0 {
                     // Town Biome Safe-Zone Logic
-                    let chunk_coord = crate::world::chunk::ChunkCoord::from_world_pos(enemy.pos);
-                    let is_safe_zone = world.chunks.get(&chunk_coord)
-                        .map(|c| c.biome == crate::world::chunk::BiomeType::Town)
-                        .unwrap_or(false);
+                    let player_chunk = crate::world::chunk::ChunkCoord::from_world_pos(hero_pos);
+                    let player_in_safe_zone = world.get_biome_at(player_chunk) == crate::world::chunk::BiomeType::Town;
 
-                    if is_safe_zone {
-                        enemy.state = EnemyState::Idle;
-                        enemy.anim.set_state(AnimationState::Idle);
-                        enemy.current_path.clear();
+                    if player_in_safe_zone || dist > 10.0 {
+                        // Not interested or player is in safe zone
+                        let to_spawn = enemy.spawn_pos - enemy.pos;
+                        if to_spawn.length() > 0.2 {
+                            enemy.target_pos = enemy.spawn_pos;
+                            let speed = enemy.stats.get_movement_speed();
+                            enemy.pos += to_spawn.normalize() * speed * dt;
+                            enemy.anim.set_state(AnimationState::Walk);
+                            enemy.anim.set_direction(to_spawn);
+                        } else {
+                            enemy.state = EnemyState::Idle;
+                            enemy.anim.set_state(AnimationState::Idle);
+                            enemy.current_path.clear();
+                        }
                         continue;
                     }
 
