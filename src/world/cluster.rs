@@ -68,6 +68,7 @@ pub struct WorldCluster {
     pub name: String,
     pub biome: String,
     pub placements: Vec<ModelPlacement>,
+    pub ground_key: Option<String>,
 }
 
 impl WorldCluster {
@@ -76,6 +77,7 @@ impl WorldCluster {
             name: name.into(),
             biome: biome.into(),
             placements: Vec::new(),
+            ground_key: None,
         }
     }
 }

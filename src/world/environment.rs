@@ -30,8 +30,11 @@ fn default_hitbox_reference_scale() -> f32 {
 
 pub fn builtin_template_defs() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("grass", "ground_grass.glb"),
-        ("path", "ground_pathStraight.glb"),
+        ("ground_grass", "ground_grass.glb"),
+        ("ground_path", "ground_pathStraight.glb"),
+        ("ground_pathOpen", "ground_pathOpen.glb"),
+        ("ground_pathSide", "ground_pathSide.glb"),
+        ("ground_pathCorner", "ground_pathCorner.glb"),
         ("tree_a", "tree_default.glb"),
         ("tree_b", "tree_simple.glb"),
         ("tree_c", "tree_oak.glb"),

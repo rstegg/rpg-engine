@@ -462,9 +462,19 @@ impl ClusterEditor {
                     }
                     EditorTab::Clusters => {
                         ui.heading("Clusters");
-                        if ui.button("SAVE ACTIVE AS FILE").clicked() {
-                            self.save_active_cluster();
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("SAVE ACTIVE").clicked() {
+                                self.save_active_cluster();
+                            }
+                            if ui.button("FILL GROUND").clicked() {
+                                self.fill_ground_from_bounds();
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("CLEAR GROUND").clicked() {
+                                self.clear_ground();
+                            }
+                        });
                         ui.separator();
                         ui.label("Available Files:");
                         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1027,6 +1037,101 @@ impl ClusterEditor {
             pos.y,
             self.avoid_chunk_border((pos.z / step).round() * step),
         )
+    }
+
+    fn fill_ground_from_bounds(&mut self) {
+        let cluster = self.map.active_cluster_mut();
+        // Calculate bounds from existing placements (usually fences)
+        let mut min_wx = f32::MAX;
+        let mut max_wx = f32::MIN;
+        let mut min_wz = f32::MAX;
+        let mut max_wz = f32::MIN;
+
+        for p in &cluster.placements {
+            if p.model.contains("fence") || p.model.contains("gate") {
+                min_wx = min_wx.min(p.position[0]);
+                max_wx = max_wx.max(p.position[0]);
+                min_wz = min_wz.min(p.position[2]);
+                max_wz = max_wz.max(p.position[2]);
+            }
+        }
+        
+        if min_wx == f32::MAX {
+            // Fallback to all placements if no fences found
+            for p in &cluster.placements {
+                min_wx = min_wx.min(p.position[0]);
+                max_wx = max_wx.max(p.position[0]);
+                min_wz = min_wz.min(p.position[2]);
+                max_wz = max_wz.max(p.position[2]);
+            }
+        }
+
+        if min_wx == f32::MAX { return; }
+
+        // Remove existing ground tiles first to avoid duplicates
+        self.clear_ground();
+
+        // Generate tiles in steps of 2.0
+        // We use the same logic as chunk.rs
+        let mut new_placements = Vec::new();
+        
+        // Find the grid of centers (e.g. 1, 3, 5...)
+        let start_x = (min_wx + 1.0).floor();
+        let end_x = (max_wx - 1.0).ceil();
+        let start_z = (min_wz + 1.0).floor();
+        let end_z = (max_wz - 1.0).ceil();
+
+        let mut x = start_x;
+        while x <= end_x {
+            let mut z = start_z;
+            while z <= end_z {
+                let wx = x;
+                let wz = z;
+
+                let is_min_x = (wx - (min_wx + 1.0)).abs() < 0.1;
+                let is_max_x = (wx - (max_wx - 1.0)).abs() < 0.1;
+                let is_min_z = (wz - (min_wz + 1.0)).abs() < 0.1;
+                let is_max_z = (wz - (max_wz - 1.0)).abs() < 0.1;
+
+                let mut key = "ground_pathOpen".to_string();
+                let mut rot = 0.0;
+
+                if (is_min_x || is_max_x) && (is_min_z || is_max_z) {
+                    key = "ground_pathCorner".to_string();
+                    if is_min_x && is_min_z { rot = 0.0; }
+                    else if is_max_x && is_min_z { rot = 1.5708; }
+                    else if is_max_x && is_max_z { rot = 3.14159; }
+                    else if is_min_x && is_max_z { rot = 4.71239; }
+                } else if is_min_x || is_max_x || is_min_z || is_max_z {
+                    key = "ground_pathSide".to_string();
+                    if is_min_x { rot = 1.5708; }
+                    else if is_min_z { rot = 3.14159; }
+                    else if is_max_x { rot = 4.71239; }
+                    else if is_max_z { rot = 0.0; }
+                }
+
+                new_placements.push(ModelPlacement {
+                    model: key.clone(),
+                    file: format!("{}.glb", key),
+                    position: [wx, 0.0, wz],
+                    rotation: rot,
+                    scale: 2.0,
+                    blocks_movement: false,
+                });
+
+                z += 2.0;
+            }
+            x += 2.0;
+        }
+
+        self.map.active_cluster_mut().placements.extend(new_placements);
+        self.status = format!("Generated ground tiles within [{}, {}] x [{}, {}]", min_wx, max_wx, min_wz, max_wz);
+    }
+
+    fn clear_ground(&mut self) {
+        let cluster = self.map.active_cluster_mut();
+        cluster.placements.retain(|p| !p.model.contains("ground_"));
+        self.status = String::from("Cleared all ground tiles from cluster.");
     }
 
     fn placement_pos(&self, pos: Vec3) -> Vec3 {

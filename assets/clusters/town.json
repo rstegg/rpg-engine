@@ -973,6 +973,3847 @@
       "rotation": 90.0,
       "scale": 2.0,
       "blocks_movement": true
+    },
+    {
+      "model": "ground_pathCorner",
+      "file": "ground_pathCorner.glb",
+      "position": [
+        5.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        5.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathCorner",
+      "file": "ground_pathCorner.glb",
+      "position": [
+        5.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 90.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        7.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        7.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        9.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        9.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        7.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        11.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        11.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        9.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        13.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        13.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        11.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        15.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        15.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        13.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        17.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        17.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        15.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        19.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        19.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        17.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        21.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        21.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        19.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        23.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        23.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        21.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        25.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        25.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        23.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        27.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        27.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        25.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        29.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        29.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        27.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        31.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        31.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        29.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        33.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 360.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathOpen",
+      "file": "ground_pathOpen.glb",
+      "position": [
+        33.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 0.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        31.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        33.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathCorner",
+      "file": "ground_pathCorner.glb",
+      "position": [
+        35.0,
+        0.0,
+        3.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        5.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        7.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        9.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        11.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        13.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        15.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        17.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        19.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        21.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        23.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        25.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        27.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        29.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        31.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        33.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        35.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        37.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathSide",
+      "file": "ground_pathSide.glb",
+      "position": [
+        35.0,
+        0.0,
+        39.0
+      ],
+      "rotation": 270.0,
+      "scale": 2.0,
+      "blocks_movement": false
+    },
+    {
+      "model": "ground_pathCorner",
+      "file": "ground_pathCorner.glb",
+      "position": [
+        35.0,
+        0.0,
+        41.0
+      ],
+      "rotation": 180.0,
+      "scale": 2.0,
+      "blocks_movement": false
     }
-  ]
+  ],
+  "ground_key": "ground_pathOpen"
 }

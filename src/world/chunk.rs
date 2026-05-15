@@ -114,6 +114,9 @@ pub struct ChunkedWorld {
     pub gates: Vec<Gate>,
     pub last_hot_reload_check: std::time::Instant,
     pub town_mtime: Option<std::time::SystemTime>,
+    pub town_bounds: Option<(i32, i32, i32, i32)>, // chunk range: min_x, max_x, min_z, max_z
+    pub town_world_bounds: Option<(f32, f32, f32, f32)>, // world range: min_x, max_x, min_z, max_z
+    pub town_ground_bounds: Option<(f32, f32, f32, f32)>, // ground-specific world range
     pub hitbox_mtime: Option<std::time::SystemTime>,
 }
 
@@ -158,6 +161,61 @@ impl ChunkedWorld {
         self.gates.retain(|gate| self.chunks.contains_key(&gate.chunk));
     }
 
+    fn compute_cluster_bounds(cluster: &WorldCluster) -> (
+        (i32, i32, i32, i32),
+        (f32, f32, f32, f32),
+        Option<(f32, f32, f32, f32)>
+    ) {
+        let mut min_cx = i32::MAX;
+        let mut max_cx = i32::MIN;
+        let mut min_cz = i32::MAX;
+        let mut max_cz = i32::MIN;
+
+        let mut min_wx = f32::MAX;
+        let mut max_wx = f32::MIN;
+        let mut min_wz = f32::MAX;
+        let mut max_wz = f32::MIN;
+
+        let mut gmin_wx = f32::MAX;
+        let mut gmax_wx = f32::MIN;
+        let mut gmin_wz = f32::MAX;
+        let mut gmax_wz = f32::MIN;
+        let mut has_ground = false;
+
+        for p in &cluster.placements {
+            let world_pos = p.pos_vec3();
+            let extent = 1.0;
+            let min_c = ChunkCoord::from_world_pos(world_pos - vec3(extent, 0.0, extent));
+            let max_c = ChunkCoord::from_world_pos(world_pos + vec3(extent, 0.0, extent));
+
+            min_cx = min_cx.min(min_c.x);
+            max_cx = max_cx.max(max_c.x);
+            min_cz = min_cz.min(min_c.z);
+            max_cz = max_cz.max(max_c.z);
+
+            min_wx = min_wx.min(world_pos.x);
+            max_wx = max_wx.max(world_pos.x);
+            min_wz = min_wz.min(world_pos.z);
+            max_wz = max_wz.max(world_pos.z);
+
+            if p.model.contains("ground_") {
+                gmin_wx = gmin_wx.min(world_pos.x);
+                gmax_wx = gmax_wx.max(world_pos.x);
+                gmin_wz = gmin_wz.min(world_pos.z);
+                gmax_wz = gmax_wz.max(world_pos.z);
+                has_ground = true;
+            }
+        }
+        
+        let ground_bounds = if has_ground {
+            Some((gmin_wx, gmax_wx, gmin_wz, gmax_wz))
+        } else {
+            None
+        };
+
+        ((min_cx, max_cx, min_cz, max_cz), (min_wx, max_wx, min_wz, max_wz), ground_bounds)
+    }
+
     fn ensure_template_loaded(&mut self, model: &str, file: &str) {
         if self.templates.contains_key(model) {
             return;
@@ -169,11 +227,15 @@ impl ChunkedWorld {
     }
 
     pub fn new(hitbox_config: HitboxConfig, templates: HashMap<String, GltfTemplate>, seed: u64) -> Self {
-        let town_cluster = match std::fs::read_to_string("assets/clusters/town.json") {
+        let town_cluster: Option<WorldCluster> = match std::fs::read_to_string("assets/clusters/town.json") {
             Ok(json) => serde_json::from_str(&json).ok(),
             Err(_) => None,
         };
 
+        let town_bounds_data = town_cluster.as_ref().map(Self::compute_cluster_bounds);
+        let town_bounds = town_bounds_data.as_ref().map(|(c, _, _)| *c);
+        let town_world_bounds = town_bounds_data.as_ref().map(|(_, w, _)| *w);
+        let town_ground_bounds = town_bounds_data.as_ref().and_then(|(_, _, g)| *g);
         let town_mtime = std::fs::metadata("assets/clusters/town.json").ok().and_then(|m| m.modified().ok());
         let hitbox_mtime = std::fs::metadata("hitbox_config.json").ok().and_then(|m| m.modified().ok());
 
@@ -187,13 +249,18 @@ impl ChunkedWorld {
             gates: Vec::new(),
             last_hot_reload_check: std::time::Instant::now(),
             town_mtime,
+            town_bounds,
+            town_world_bounds,
+            town_ground_bounds,
             hitbox_mtime,
         }
     }
 
     pub fn get_biome_at(&self, coord: ChunkCoord) -> BiomeType {
-        if coord.x == 0 && coord.z == 0 {
-            return BiomeType::Town;
+        if let Some((min_x, max_x, min_z, max_z)) = self.town_bounds {
+            if coord.x >= min_x && coord.x <= max_x && coord.z >= min_z && coord.z <= max_z {
+                return BiomeType::Town;
+            }
         }
 
         let mut rng = Pcg64::seed_from_u64(self.chunk_seed(coord));
@@ -230,12 +297,15 @@ impl ChunkedWorld {
                     self.town_mtime = Some(mtime);
                     if let Ok(json) = std::fs::read_to_string("assets/clusters/town.json") {
                         if let Ok(cluster) = serde_json::from_str::<WorldCluster>(&json) {
+                            let (c_bounds, w_bounds, g_bounds) = Self::compute_cluster_bounds(&cluster);
+                            self.town_bounds = Some(c_bounds);
+                            self.town_world_bounds = Some(w_bounds);
+                            self.town_ground_bounds = g_bounds;
                             self.town_cluster = Some(cluster);
-                            // Clear town chunk so it regenerates
-                            let town_coord = ChunkCoord { x: 0, z: 0 };
-                            self.chunks.remove(&town_coord);
-                            self.render_data.remove(&town_coord);
-                            self.gates.retain(|gate| gate.chunk != town_coord);
+                            // Clear ALL chunks because town layout changed
+                            self.chunks.clear();
+                            self.render_data.clear();
+                            self.gates.clear();
                             changed = true;
                             println!("[HOT RELOAD] Reloaded town.json");
                         }
@@ -280,28 +350,79 @@ impl ChunkedWorld {
         let mut walkability = vec![vec![true; GRID_WIDTH as usize]; GRID_WIDTH as usize];
 
         // 1. Ground Tiles
+        let cluster_placements = if let Some(ref cluster) = self.town_cluster {
+            cluster.placements.clone()
+        } else {
+            Vec::new()
+        };
+
         for x in 0..TILES_PER_CHUNK {
             for z in 0..TILES_PER_CHUNK {
                 let wx = origin.x + x as f32 * TILE_SIZE + TILE_SIZE * 0.5;
                 let wz = origin.z + z as f32 * TILE_SIZE + TILE_SIZE * 0.5;
                 
-                let is_path = if biome == BiomeType::Town {
-                    (x % 10 < 2) || (z % 10 < 2)
-                } else {
-                    false
-                };
+                let mut key = "ground_grass".to_string();
+                let mut rot = rng.gen_range(0..4) as f32 * 1.5708;
 
-                let key = if is_path { "path" } else { "grass" };
-                let rot = if is_path { 0.0 } else { rng.gen_range(0..4) as f32 * 1.5708 };
-                
-                placements.push(ModelPlacement {
-                    model: key.to_string(),
-                    file: format!("ground_{}.glb", key),
-                    position: [wx, 0.0, wz],
-                    rotation: rot,
-                    scale: TILE_SIZE,
-                    blocks_movement: false,
-                });
+                if let Some((min_x, max_x, min_z, max_z)) = self.town_ground_bounds {
+                    // Check if tile center is within the border area the user made
+                    if wx > min_x && wx < max_x && wz > min_z && wz < max_z {
+                        // It's inside the border! We generate pathOpen procedurally
+                        // (Unless there's a manual override, which is checked below)
+                        key = "ground_pathOpen".to_string();
+                        rot = 0.0;
+                    } else {
+                        // It's outside the border but potentially still within the town cluster bounds
+                        // We default to grass
+                        key = "ground_grass".to_string();
+                    }
+                } else if let Some((min_x, max_x, min_z, max_z)) = self.town_world_bounds {
+                    // Fallback to old fencing logic if no ground tiles are in the cluster
+                    if wx > min_x && wx < max_x && wz > min_z && wz < max_z {
+                        // ... (same as before)
+                        let is_min_x = (wx - (min_x + 1.0)).abs() < 0.1;
+                        let is_max_x = (wx - (max_x - 1.0)).abs() < 0.1;
+                        let is_min_z = (wz - (min_z + 1.0)).abs() < 0.1;
+                        let is_max_z = (wz - (max_z - 1.0)).abs() < 0.1;
+
+                        if (is_min_x || is_max_x) && (is_min_z || is_max_z) {
+                            key = "ground_pathCorner".to_string();
+                            if is_min_x && is_min_z { rot = 0.0; }
+                            else if is_max_x && is_min_z { rot = 1.5708; }
+                            else if is_max_x && is_max_z { rot = 3.14159; }
+                            else if is_min_x && is_max_z { rot = 4.71239; }
+                        } else if is_min_x || is_max_x || is_min_z || is_max_z {
+                            key = "ground_pathSide".to_string();
+                            if is_min_x { rot = 1.5708; }
+                            else if is_min_z { rot = 3.14159; }
+                            else if is_max_x { rot = 4.71239; }
+                            else if is_max_z { rot = 0.0; }
+                        } else {
+                            key = "ground_pathOpen".to_string();
+                            rot = 0.0;
+                        }
+                    }
+                }
+
+                // Check for manual overrides in the cluster
+                let mut has_override = false;
+                for p in &cluster_placements {
+                    if p.model.contains("ground_") && (p.position[0] - wx).abs() < 0.1 && (p.position[2] - wz).abs() < 0.1 {
+                        has_override = true;
+                        break;
+                    }
+                }
+
+                if !has_override {
+                    placements.push(ModelPlacement {
+                        model: key.clone(),
+                        file: format!("{}.glb", key),
+                        position: [wx, 0.0, wz],
+                        rotation: rot,
+                        scale: TILE_SIZE,
+                        blocks_movement: false,
+                    });
+                }
             }
         }
 
