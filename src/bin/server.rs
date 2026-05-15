@@ -18,7 +18,7 @@ use postgres::{Client as PgClient, NoTls};
 
 /// Autosave interval — WoW-style: save periodically + on disconnect.
 const AUTOSAVE_INTERVAL_SECS: f64 = 60.0;
-const ENEMY_SPAWNING_ENABLED: bool = false;
+const ENEMY_SPAWNING_ENABLED: bool = true;
 
 /// Represents a connected player on the server.
 struct ServerPlayer {
@@ -155,6 +155,38 @@ fn main() {
         let now = Instant::now();
         let dt = now.duration_since(last_tick).as_secs_f32();
         last_tick = now;
+
+        // Authoritative Enemy Spawning
+        if ENEMY_SPAWNING_ENABLED {
+            enemy_spawn_timer -= dt;
+            if enemy_spawn_timer <= 0.0 {
+                enemy_spawn_timer = 5.0; // Check every 5 seconds
+                
+                if enemies.len() < 30 { // Cap total enemies
+                    for player in players.values() {
+                        let player_chunk = ChunkCoord::from_world_pos(vec3(player.x, 0.0, player.z));
+                        if world.get_biome_at(player_chunk) != BiomeType::Town {
+                            // Player is outside, spawn an enemy near them
+                            use rand::Rng;
+                            let mut rng = rand::thread_rng();
+                            let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+                            let sx = player.x + angle.cos() * 10.0;
+                            let sz = player.z + angle.sin() * 10.0;
+                            
+                            let spawn_chunk = ChunkCoord::from_world_pos(vec3(sx, 0.0, sz));
+                            if world.is_walkable(vec3(sx, 0.0, sz)) && world.get_biome_at(spawn_chunk) != BiomeType::Town {
+                                enemies.insert(next_enemy_id, ServerEnemy {
+                                    id: next_enemy_id, race_idx: rng.gen_range(0..6) as usize, x: sx, z: sz, target_x: sx, target_z: sz, direction: 0, anim_state: 0, health: 100, max_health: 100,
+                                    current_path: Vec::new(), next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
+                                });
+                                next_enemy_id += 1;
+                                break; // Only spawn one enemy per timer tick to prevent performance spikes
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         // Hot reload world data
         world.check_hot_reload();

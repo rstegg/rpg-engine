@@ -25,6 +25,7 @@ use world::environment::{self, HitboxConfig, GltfTemplate};
 use world::chunk::{ChunkedWorld, ChunkCoord};
 use std::time::Instant;
 use world::pathfinding::{self, slide_move_world};
+use arboard::Clipboard;
 
 
 
@@ -280,8 +281,8 @@ async fn main() {
 
     let mut game_state = GameState::Login;
     let mut net_client: Option<NetClient> = None;
-    let mut server_addr = String::from("127.0.0.1:7878");
-    let mut login_username = String::from("Player");
+    let mut server_addr = String::from("71.127.210.74:7878");
+    let mut login_username = String::new();
     let mut login_error: Option<String> = None;
     let mut character_list: Vec<net::protocol::CharacterSummaryNet> = Vec::new();
     let mut char_select_scroll = 0usize;
@@ -307,6 +308,8 @@ async fn main() {
             .or_insert(environment::HitboxConfigEntry::Legacy(1.0));
     }
 
+    let mut clipboard = Clipboard::new().ok();
+
     loop {
         clear_background(DARKGRAY);
         let delta_time = get_frame_time().min(0.05);
@@ -318,6 +321,22 @@ async fn main() {
         egui_macroquad::ui(|ctx| {
             egui_wants_pointer = ctx.wants_pointer_input() || ctx.is_pointer_over_area();
             apply_rpg_egui_theme(ctx);
+
+            // egui -> macroquad (Copy)
+            let copy_text = ctx.output(|o| o.copied_text.clone());
+            if !copy_text.is_empty() {
+                if let Some(ref mut cb) = clipboard {
+                    let _ = cb.set_text(copy_text);
+                }
+            }
+            // macroquad -> egui (Paste)
+            if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::V)) {
+                if let Some(ref mut cb) = clipboard {
+                    if let Ok(text) = cb.get_text() {
+                        ctx.input_mut(|i| i.events.push(egui::Event::Text(text)));
+                    }
+                }
+            }
 
             if game_state == GameState::Login {
                 let sw = screen_width();
@@ -338,15 +357,6 @@ async fn main() {
                                 .hint_text("Enter username…")
                         );
                         if ur.changed() { egui_login_changed = true; }
-
-                        ui.add_space(10.0);
-                        ui.label(egui::RichText::new("Server").color(egui::Color32::from_rgb(180, 170, 210)).size(14.0));
-                        let sr = ui.add(
-                            egui::TextEdit::singleline(&mut server_addr)
-                                .desired_width(field_w)
-                                .font(egui::FontId::new(18.0, egui::FontFamily::Proportional))
-                        );
-                        if sr.changed() { egui_login_changed = true; }
                     });
             }
 
@@ -437,7 +447,7 @@ async fn main() {
                 let btn_hover = mx >= btn_x && mx <= btn_x + btn_w && my >= btn_y && my <= btn_y + btn_h;
                 draw_rectangle(btn_x, btn_y, btn_w, btn_h, if btn_hover { Color::new(0.2, 0.35, 0.2, 1.0) } else { Color::new(0.12, 0.25, 0.12, 1.0) });
                 draw_rectangle_lines(btn_x, btn_y, btn_w, btn_h, 2.0, GREEN);
-                let ct = "CONNECT";
+                let ct = "PLAY ONLINE";
                 let ctw = measure_text(ct, None, 24, 1.0).width;
                 draw_text(ct, btn_x + (btn_w - ctw) / 2.0, btn_y + 30.0, 24.0, WHITE);
 

@@ -3,7 +3,7 @@ use crate::entities::character::{CharacterAppearance, CharacterTextures, LayerCa
 use crate::entities::player::Stats;
 use macroquad::prelude::*;
 
-const OFFLINE_ENEMY_SPAWNING_ENABLED: bool = false;
+const OFFLINE_ENEMY_SPAWNING_ENABLED: bool = true;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum EnemyState {
@@ -404,9 +404,7 @@ impl EnemyDirector {
                 let candidate_pos = center_pos + vec3(angle.cos() * distance, 0.0, angle.sin() * distance);
                 
                 let chunk_coord = crate::world::chunk::ChunkCoord::from_world_pos(candidate_pos);
-                let is_town = world.chunks.get(&chunk_coord)
-                    .map(|c| c.biome == crate::world::chunk::BiomeType::Town)
-                    .unwrap_or(false);
+                let is_town = world.get_biome_at(chunk_coord) == crate::world::chunk::BiomeType::Town;
 
                 if is_town {
                     continue;
