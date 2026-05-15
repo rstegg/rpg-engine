@@ -7,7 +7,7 @@ use rpg_engine::net::protocol::*;
 
 use rpg_engine::world::environment::{HitboxConfig, builtin_template_defs, load_glb_template_sync};
 use rpg_engine::world::chunk::{ChunkedWorld, ChunkCoord, BiomeType};
-use rpg_engine::world::pathfinding::{find_path_fn, is_walkable_with_radius, slide_move_world};
+use rpg_engine::world::pathfinding::{find_path_detailed_fn, slide_move_world};
 use macroquad::math::{Vec3, vec3};
 
 use std::collections::{HashMap, HashSet};
@@ -43,6 +43,7 @@ struct ServerPlayer {
     revive_timer: f32,
     is_invulnerable: bool,
     loaded_chunks: HashSet<ChunkCoord>,
+    current_path: Vec<Vec3>,
     // ─── Persistence ───
     account_id: i32,
     character_id: i32,
@@ -82,6 +83,27 @@ struct ServerEnemy {
     attack_timer: f32,
     spawn_x: f32,
     spawn_z: f32,
+}
+
+fn log_path_failure(label: &str, start: Vec3, goal: Vec3, diagnostics: &rpg_engine::world::pathfinding::PathfindDiagnostics) {
+    println!(
+        "[PATHFINDING:{label}] failed start=({:.2},{:.2}) goal=({:.2},{:.2}) start_grid=({}, {}) goal_grid=({}, {}) search_min=({}, {}) search_max=({}, {}) start_walkable={} goal_walkable={} expanded_nodes={}",
+        start.x,
+        start.z,
+        goal.x,
+        goal.z,
+        diagnostics.start_grid.x,
+        diagnostics.start_grid.z,
+        diagnostics.goal_grid.x,
+        diagnostics.goal_grid.z,
+        diagnostics.min_search_grid.x,
+        diagnostics.min_search_grid.z,
+        diagnostics.max_search_grid.x,
+        diagnostics.max_search_grid.z,
+        diagnostics.start_walkable,
+        diagnostics.goal_walkable,
+        diagnostics.expanded_nodes,
+    );
 }
 
 const MAX_PLAYERS: usize = 16;
@@ -209,14 +231,57 @@ fn main() {
                     player.x = new_pos.x;
                     player.z = new_pos.z;
 
-                    if dist <= move_dist {
-                        player.anim_state = 0; // Idle
+                    // Re-calculate distance after move
+                    let new_dist = (vec3(player.target_x, 0.0, player.target_z) - vec3(player.x, 0.0, player.z)).length();
+
+                    // If reached waypoint (either before or after move), move to next
+                    if (dist <= move_dist || new_dist <= 0.05) && !player.current_path.is_empty() {
+                        let reached = player.current_path.remove(0);
+                        println!("[SERVER] Player {} reached waypoint ({:.2}, {:.2}), {} nodes remaining", player.id, reached.x, reached.z, player.current_path.len());
+                        if let Some(next) = player.current_path.first() {
+                            player.target_x = next.x;
+                            player.target_z = next.z;
+                            println!("[SERVER] Player {} next waypoint: ({:.2}, {:.2})", player.id, player.target_x, player.target_z);
+                            
+                            // Immediately update direction for the NEW target
+                            let ndx = player.target_x - player.x;
+                            let ndz = player.target_z - player.z;
+                            let ndist = (ndx * ndx + ndz * ndz).sqrt();
+                            if ndist > 0.01 {
+                                let mut angle = f32::atan2(ndx, ndz);
+                                if angle < 0.0 { angle += std::f32::consts::PI * 2.0; }
+                                player.direction = ((angle / (std::f32::consts::PI / 4.0)).round() as u8) % 8;
+                            }
+                        }
+                    }
+
+                    if dist <= move_dist && player.current_path.is_empty() {
+                        player.anim_state = 0; // Idle (only if truly reached final destination)
                     } else {
-                        player.anim_state = 1; // Walk
+                        player.anim_state = 1; // Walk (stay in walk if we have more nodes)
                         let mut angle = f32::atan2(dx, dz);
                         if angle < 0.0 { angle += std::f32::consts::PI * 2.0; }
                         player.direction = ((angle / (std::f32::consts::PI / 4.0)).round() as u8) % 8;
                     }
+                } else if !player.current_path.is_empty() {
+                    // We are very close to current target (dist <= 0.05) but have more waypoints.
+                    // Pop the reached one and set the next one.
+                    player.current_path.remove(0);
+                    if let Some(next) = player.current_path.first() {
+                        player.target_x = next.x;
+                        player.target_z = next.z;
+                        
+                        // Immediately update direction for the NEW target
+                        let ndx = player.target_x - player.x;
+                        let ndz = player.target_z - player.z;
+                        let ndist = (ndx * ndx + ndz * ndz).sqrt();
+                        if ndist > 0.01 {
+                            let mut angle = f32::atan2(ndx, ndz);
+                            if angle < 0.0 { angle += std::f32::consts::PI * 2.0; }
+                            player.direction = ((angle / (std::f32::consts::PI / 4.0)).round() as u8) % 8;
+                        }
+                    }
+                    player.anim_state = 1; // Stay in Walk if we just switched to a new node
                 } else {
                     player.anim_state = 0; // Idle
                 }
@@ -340,16 +405,16 @@ fn main() {
                         // Chase
                         if enemy.next_path_recalc <= 0.0 {
                             enemy.next_path_recalc = 0.5;
-                            if let Some(mut path) = find_path_fn(
-                                vec3(enemy.x, 0.0, enemy.z),
-                                vec3(target.x, 0.0, target.z),
-                                0.5,
-                                |p| world.is_walkable(p)
-                            ) {
+                            let start = vec3(enemy.x, 0.0, enemy.z);
+                            let goal = vec3(target.x, 0.0, target.z);
+                            let result = find_path_detailed_fn(start, goal, 0.5, |p| world.is_walkable(p));
+                            if let Some(mut path) = result.path {
                                 if path.len() > 1 && (path[0] - vec3(enemy.x, 0.0, enemy.z)).length() < 0.5 {
                                     path.remove(0);
                                 }
                                 enemy.current_path = path;
+                            } else {
+                                log_path_failure("enemy_chase", start, goal, &result.diagnostics);
                             }
                         }
                         
@@ -482,6 +547,7 @@ fn main() {
                     max_mp: p.max_mp,
                     is_dead: p.is_dead,
                     revive_progress: p.revive_timer / 3.0,
+                    current_path: p.current_path.iter().map(|v| (v.x, v.z)).collect(),
                 });
             }
 
@@ -498,6 +564,7 @@ fn main() {
                     anim_state: e.anim_state,
                     health: e.health,
                     max_health: e.max_health,
+                    current_path: e.current_path.iter().map(|v| (v.x, v.z)).collect(),
                 });
             }
 
@@ -613,7 +680,7 @@ fn handle_client_message(
             players.insert(addr, ServerPlayer {
                 id, addr, name, appearance, x, z, target_x: x, target_z: z, direction: 0, anim_state: 0, anim_frame: 0.0, casting_timer: 0.0, last_heard: Instant::now(),
                 current_hp: hp, max_hp, current_mp: mp, max_mp, is_dead, revive_timer: 0.0, is_invulnerable: false, loaded_chunks: HashSet::new(),
-                account_id: pc.account_id, character_id, session_token,
+                account_id: pc.account_id, character_id, session_token, current_path: Vec::new(),
             });
         }
 
@@ -637,9 +704,35 @@ fn handle_client_message(
 
         ClientMessage::MoveTo { x, z } => {
             if let Some(player) = players.get_mut(&addr) {
-                player.target_x = x;
-                player.target_z = z;
                 player.last_heard = Instant::now();
+                if player.is_dead { return; }
+
+                // Calculate path to destination
+                let start = vec3(player.x, 0.0, player.z);
+                let goal = vec3(x, 0.0, z);
+
+                let result = find_path_detailed_fn(start, goal, 0.5, |p| {
+                    world.is_walkable_with_radius(p, 0.35)
+                });
+
+                if let Some(mut path) = result.path {
+                    // Remove first node if it's too close to current position
+                    if path.len() > 1 && (path[0] - start).length() < 0.4 {
+                        path.remove(0);
+                    }
+                    println!("[SERVER] New path for player {}: {} nodes (from ({:.2}, {:.2}) to ({:.2}, {:.2}))", player.id, path.len(), start.x, start.z, goal.x, goal.z);
+                    player.current_path = path;
+                    if let Some(first) = player.current_path.first() {
+                        player.target_x = first.x;
+                        player.target_z = first.z;
+                        println!("[SERVER] Player {} initial target: ({:.2}, {:.2})", player.id, player.target_x, player.target_z);
+                    }
+                } else {
+                    log_path_failure("player_move", start, goal, &result.diagnostics);
+                    player.target_x = player.x;
+                    player.target_z = player.z;
+                    player.current_path.clear();
+                }
             }
         }
 

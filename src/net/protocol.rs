@@ -157,6 +157,7 @@ pub struct PlayerState {
     pub max_mp: i32,
     pub is_dead: bool,
     pub revive_progress: f32, // 0.0 to 1.0
+    pub current_path: Vec<(f32, f32)>,
 }
 
 /// Compact spell effect for network transmission.
@@ -183,6 +184,7 @@ pub struct EnemyStateNet {
     pub anim_state: u8,
     pub health: i32,
     pub max_health: i32,
+    pub current_path: Vec<(f32, f32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

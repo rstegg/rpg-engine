@@ -419,13 +419,13 @@ fn rotate_local(local: Vec2, sin_r: f32, cos_r: f32) -> Vec2 {
 
 fn rotate_world_to_local(world: Vec2, sin_r: f32, cos_r: f32) -> Vec2 {
     vec2(
-        world.x * cos_r - world.y * sin_r,
-        world.x * sin_r + world.y * cos_r,
+        world.x * cos_r + world.y * sin_r,
+        -world.x * sin_r + world.y * cos_r,
     )
 }
 
 fn world_to_grid_index(coord: f32, grid_size: f32, grid_extent: i32) -> i32 {
-    ((coord / grid_size).round() + (grid_extent / 2) as f32) as i32
+    ((coord / grid_size).floor() + (grid_extent / 2) as f32) as i32
 }
 
 fn block_painted_mask(

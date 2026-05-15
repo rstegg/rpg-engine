@@ -640,8 +640,8 @@ impl ChunkedWorld {
         if let Some(chunk) = self.chunks.get(&coord) {
             let center = coord.world_center();
             let local = pos - center;
-            let gx = ((local.x / GRID_SIZE).round() + (GRID_WIDTH / 2) as f32) as i32;
-            let gz = ((local.z / GRID_SIZE).round() + (GRID_WIDTH / 2) as f32) as i32;
+            let gx = ((local.x / GRID_SIZE).floor() + (GRID_WIDTH / 2) as f32) as i32;
+            let gz = ((local.z / GRID_SIZE).floor() + (GRID_WIDTH / 2) as f32) as i32;
 
             if gx >= 0 && gx < GRID_WIDTH && gz >= 0 && gz < GRID_WIDTH {
                 if !chunk.walkability[gx as usize][gz as usize] {
@@ -686,6 +686,13 @@ impl ChunkedWorld {
         }
 
         true
+    }
+
+    pub fn is_walkable_with_radius(&self, pos: Vec3, radius: f32) -> bool {
+        // Use the generic radius checker from pathfinding.rs
+        crate::world::pathfinding::is_walkable_with_radius_fn(pos, radius, |p| {
+            self.is_walkable(p)
+        })
     }
 
     pub fn update_gates(&mut self, player_positions: &[Vec3], dt: f32) {

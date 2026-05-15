@@ -19,13 +19,13 @@ use std::collections::BTreeMap;
 use systems::cluster_editor::*;
 use systems::indicators::*;
 use systems::input::*;
+use systems::hitbox_editor::*;
 use ui::character_creator::*;
 use world::environment::{self, HitboxConfig, GltfTemplate};
 use world::chunk::{ChunkedWorld, ChunkCoord};
 use world::pathfinding::{self, slide_move_world};
 
-const HITBOX_SIDEBAR_WIDTH: f32 = 320.0;
-const HITBOX_ROW_HEIGHT: f32 = 24.0;
+
 
 pub struct Assets {
     pub icon_q: Texture2D,
@@ -174,27 +174,7 @@ fn discover_hitbox_calibration_models() -> BTreeMap<String, String> {
     models
 }
 
-fn hitbox_calibration_config_key(key: &str) -> &str {
-    match key {
-        "gate_closed" => "gate",
-        "gate_open" => "gate_open",
-        _ => key,
-    }
-}
 
-fn hitbox_calibration_template_key(key: &str) -> &str {
-    match key {
-        "gate_closed" | "gate_open" => "gate",
-        _ => key,
-    }
-}
-
-fn hitbox_calibration_preview_open_progress(key: &str) -> f32 {
-    match key {
-        "gate_open" => 1.0,
-        _ => 0.0,
-    }
-}
 
 async fn rebuild_world_from_current_placements(
     world_env: &mut world::environment::WorldEnvironment,
@@ -317,13 +297,7 @@ async fn main() {
     let mut spawned_effect_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
 
     // Calibration state
-    let mut calibration_selected_idx = 0;
-    let mut calibration_last_paint: Option<([i32; 2], bool)> = None;
-    let mut calibration_camera_yaw = 0.0_f32;
-    let mut calibration_camera_distance = 10.0_f32;
-    let mut calibration_search_text = String::new();
-    let mut calibration_search_focused = false;
-    let mut calibration_list_scroll = 0usize;
+    let mut hitbox_editor = HitboxEditor::new(hitbox_models.clone());
     // Ensure all templates have an entry in hitbox_config
     for key in hitbox_models.keys() {
         hitbox_config
@@ -406,6 +380,10 @@ async fn main() {
                     .map(|asset| world_env.sim.templates.contains_key(&asset.key))
                     .unwrap_or(false);
                 cluster_editor.draw_egui(ctx, template_loaded);
+            }
+
+            if game_state == GameState::HitboxCalibration {
+                hitbox_editor.draw_egui(ctx);
             }
         });
 
@@ -556,463 +534,22 @@ async fn main() {
                 }
             }
             GameState::HitboxCalibration => {
-                // Clear and set 3D view
-                clear_background(BLACK);
-                let sw = screen_width();
-                let sh = screen_height();
-                let sidebar_x = sw - HITBOX_SIDEBAR_WIDTH;
-                let search_y = 60.0;
-                let list_y = 125.0;
-                let (mx, my) = mouse_position();
-                let pointer_over_sidebar = mx >= sidebar_x;
-                let pointer_over_info_panel = rect_contains(10.0, 10.0, 360.0, 220.0, (mx, my));
-                let pointer_over_ui = pointer_over_sidebar || pointer_over_info_panel;
-
-                if is_mouse_button_pressed(MouseButton::Left) {
-                    let clicked_search = rect_contains(
-                        sidebar_x + 10.0,
-                        search_y,
-                        HITBOX_SIDEBAR_WIDTH - 20.0,
-                        24.0,
-                        (mx, my),
-                    );
-                    if clicked_search {
-                        calibration_search_focused = true;
-                    } else if !pointer_over_sidebar {
-                        calibration_search_focused = false;
-                    }
-                }
-
-                if calibration_search_focused {
-                    while let Some(c) = get_char_pressed() {
-                        if c.is_ascii() && !c.is_control() {
-                            calibration_search_text.push(c.to_ascii_lowercase());
-                            calibration_selected_idx = 0;
-                            calibration_list_scroll = 0;
-                            calibration_last_paint = None;
-                        }
-                    }
-                    if is_key_pressed(KeyCode::Backspace) && !calibration_search_text.is_empty() {
-                        calibration_search_text.pop();
-                        calibration_selected_idx = 0;
-                        calibration_list_scroll = 0;
-                        calibration_last_paint = None;
-                    }
-                }
-
-                let keys: Vec<String> = hitbox_models
-                    .keys()
-                    .filter(|key| {
-                        calibration_search_text.is_empty()
-                            || key.to_ascii_lowercase().contains(&calibration_search_text)
-                    })
-                    .cloned()
-                    .collect();
-                if keys.is_empty() {
-                    set_default_camera();
-                    draw_rectangle(
-                        sidebar_x,
-                        0.0,
-                        HITBOX_SIDEBAR_WIDTH,
-                        sh,
-                        Color::new(0.08, 0.08, 0.08, 0.95),
-                    );
-                    draw_text("HITBOX CALIBRATION", sidebar_x + 10.0, 35.0, 24.0, YELLOW);
-                    let search_color = if calibration_search_focused {
-                        Color::new(0.18, 0.18, 0.18, 1.0)
-                    } else {
-                        Color::new(0.1, 0.1, 0.1, 1.0)
-                    };
-                    draw_text("Search:", sidebar_x + 10.0, 54.0, 14.0, GRAY);
-                    draw_rectangle(
-                        sidebar_x + 10.0,
-                        search_y,
-                        HITBOX_SIDEBAR_WIDTH - 20.0,
-                        24.0,
-                        search_color,
-                    );
-                    draw_rectangle_lines(
-                        sidebar_x + 10.0,
-                        search_y,
-                        HITBOX_SIDEBAR_WIDTH - 20.0,
-                        24.0,
-                        1.0,
-                        GRAY,
-                    );
-                    draw_text(
-                        &calibration_search_text,
-                        sidebar_x + 15.0,
-                        search_y + 16.0,
-                        14.0,
-                        WHITE,
-                    );
-                    draw_text(
-                        "No models match the current filter.",
-                        sidebar_x + 10.0,
-                        110.0,
-                        18.0,
-                        ORANGE,
-                    );
-                    if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
+                let action = hitbox_editor.update(egui_wants_pointer);
+                match action {
+                    HitboxEditorAction::Exit => {
                         rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
                         game_state = GameState::Playing;
                     }
-                    egui_macroquad::draw();
-                    previous_mouse_pos = mouse_position();
-                    next_frame().await;
-                    continue;
-                }
-                if calibration_selected_idx >= keys.len() {
-                    calibration_selected_idx = 0;
-                }
-                let mut calibration_selection_changed = false;
-                let current_key = keys[calibration_selected_idx].clone();
-                let template_key = hitbox_calibration_template_key(&current_key).to_string();
-                if !world_env.sim.templates.contains_key(&template_key) {
-                    if let Some(path) = hitbox_models.get(&current_key) {
-                        if let Some(template) = world::environment::load_glb_template(path).await {
-                            world_env.sim.templates.insert(template_key.clone(), template);
+                    HitboxEditorAction::Save => {
+                        if let Ok(json) = serde_json::to_string_pretty(&hitbox_config) {
+                            let _ = std::fs::write("hitbox_config.json", json);
                         }
+                        rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
                     }
+                    HitboxEditorAction::None => {}
                 }
 
-                if is_key_pressed(KeyCode::S) {
-                    if let Ok(json) = serde_json::to_string_pretty(&hitbox_config) {
-                        let _ = std::fs::write("hitbox_config.json", json);
-                    }
-                    rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
-                }
-                if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::F2) {
-                    rebuild_world_from_current_placements(&mut world_env, &hitbox_config).await;
-                    game_state = GameState::Playing;
-                }
-                if is_key_pressed(KeyCode::Down) {
-                    calibration_selected_idx = (calibration_selected_idx + 1) % keys.len();
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-                if is_key_pressed(KeyCode::Up) {
-                    calibration_selected_idx =
-                        (calibration_selected_idx + keys.len() - 1) % keys.len();
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-                if is_key_pressed(KeyCode::PageDown) {
-                    calibration_selected_idx = (calibration_selected_idx + 12).min(keys.len() - 1);
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-                if is_key_pressed(KeyCode::PageUp) {
-                    calibration_selected_idx = calibration_selected_idx.saturating_sub(12);
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-                if is_key_pressed(KeyCode::Home) {
-                    calibration_selected_idx = 0;
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-                if is_key_pressed(KeyCode::End) {
-                    calibration_selected_idx = keys.len() - 1;
-                    calibration_last_paint = None;
-                    calibration_selection_changed = true;
-                }
-
-                let visible_rows = ((sh - list_y - 150.0) / HITBOX_ROW_HEIGHT).max(1.0) as usize;
-                let max_scroll = keys.len().saturating_sub(visible_rows);
-                calibration_list_scroll = calibration_list_scroll.min(max_scroll);
-                if calibration_selection_changed {
-                    if calibration_selected_idx < calibration_list_scroll {
-                        calibration_list_scroll = calibration_selected_idx;
-                    }
-                    if calibration_selected_idx >= calibration_list_scroll + visible_rows {
-                        calibration_list_scroll =
-                            calibration_selected_idx.saturating_sub(visible_rows.saturating_sub(1));
-                    }
-                }
-
-                if is_mouse_button_pressed(MouseButton::Left) && pointer_over_sidebar && my > list_y
-                {
-                    let row = ((my - list_y) / HITBOX_ROW_HEIGHT) as usize;
-                    let idx = calibration_list_scroll + row;
-                    if idx < keys.len() {
-                        calibration_selected_idx = idx;
-                        calibration_last_paint = None;
-                    }
-                }
-
-                if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
-                    calibration_camera_yaw -= delta_time * 1.8;
-                }
-                if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
-                    calibration_camera_yaw += delta_time * 1.8;
-                }
-                let (_, wheel_y) = mouse_wheel();
-                if wheel_y.abs() > 0.01 && pointer_over_sidebar {
-                    if wheel_y < 0.0 {
-                        calibration_list_scroll = (calibration_list_scroll + 3).min(max_scroll);
-                    } else {
-                        calibration_list_scroll = calibration_list_scroll.saturating_sub(3);
-                    }
-                } else if wheel_y.abs() > 0.01 && !pointer_over_ui {
-                    calibration_camera_distance =
-                        (calibration_camera_distance - wheel_y * 0.75).clamp(4.0, 20.0);
-                }
-
-                // Render selected model in center
-                let camera_pos = vec3(
-                    calibration_camera_yaw.sin() * calibration_camera_distance,
-                    5.0,
-                    calibration_camera_yaw.cos() * calibration_camera_distance,
-                );
-                let target = vec3(0.0, 0.0, 0.0);
-                let calibration_camera = Camera3D {
-                    position: camera_pos,
-                    target: target,
-                    up: vec3(0.0, 1.0, 0.0),
-                    fovy: 45.0,
-                    ..Default::default()
-                };
-                set_camera(&calibration_camera);
-
-                draw_grid(10, 2.0, GRAY, DARKGRAY);
-
-                let template_key = hitbox_calibration_template_key(&current_key);
-                let config_key = hitbox_calibration_config_key(&current_key);
-                
-                if let Some(t) = world_env.sim.templates.get(template_key) {
-                    let grid_size = world_env.sim.grid_size;
-                    let mask = environment::ensure_painted_hitbox_entry(
-                        &mut hitbox_config,
-                        config_key,
-                        t,
-                        grid_size,
-                    );
-                    let hovered_cell = if pointer_over_ui {
-                        None
-                    } else {
-                        ground_intersection(&calibration_camera).map(|pos| {
-                            [
-                                (pos.x / grid_size).round() as i32,
-                                (pos.z / grid_size).round() as i32,
-                            ]
-                        })
-                    };
-
-                    let paint_mode = if pointer_over_ui {
-                        None
-                    } else if is_mouse_button_down(MouseButton::Left) {
-                        Some(false)
-                    } else if is_mouse_button_down(MouseButton::Right) {
-                        Some(true)
-                    } else {
-                        None
-                    };
-
-                    if let (Some(cell), Some(erase)) = (hovered_cell, paint_mode) {
-                        let in_bounds = cell[0].abs() <= world::environment::MAX_HITBOX_CELL_EXTENT 
-                                     && cell[1].abs() <= world::environment::MAX_HITBOX_CELL_EXTENT;
-
-                        let should_apply = calibration_last_paint
-                            .map(|last| last != (cell, erase))
-                            .unwrap_or(true);
-                        if should_apply {
-                            if erase {
-                                mask.blocked_cells.retain(|&blocked| blocked != cell);
-                            } else if in_bounds {
-                                if !mask.blocked_cells.contains(&cell) {
-                                    mask.blocked_cells.push(cell);
-                                }
-                            }
-
-
-
-                            mask.blocked_cells.sort_unstable();
-                            calibration_last_paint = Some((cell, erase));
-                        }
-                    } else {
-                        calibration_last_paint = None;
-                    }
-
-                    // Draw the model
-                    let meshes = if template_key == "gate" {
-                        world::environment::instantiate_gate(
-                            t,
-                            vec3(0.0, 0.0, 0.0),
-                            0.0,
-                            2.0,
-                            hitbox_calibration_preview_open_progress(&current_key),
-                        )
-                    } else {
-                        world::environment::instantiate(t, vec3(0.0, 0.0, 0.0), 0.0, 2.0)
-                    };
-                    for m in meshes {
-                        draw_mesh(&m);
-                    }
-
-                    for &[cell_x, cell_z] in &mask.blocked_cells {
-                        draw_cube(
-                            vec3(cell_x as f32 * grid_size, 0.05, cell_z as f32 * grid_size),
-                            vec3(grid_size * 0.95, 0.1, grid_size * 0.95),
-                            None,
-                            Color::new(1.0, 0.0, 0.0, 0.5),
-                        );
-                    }
-
-                    if let Some([cell_x, cell_z]) = hovered_cell {
-                        let in_bounds = cell_x.abs() <= world::environment::MAX_HITBOX_CELL_EXTENT 
-                                     && cell_z.abs() <= world::environment::MAX_HITBOX_CELL_EXTENT;
-
-                        draw_cube_wires(
-                            vec3(cell_x as f32 * grid_size, 0.08, cell_z as f32 * grid_size),
-                            vec3(grid_size, 0.12, grid_size),
-                            if !in_bounds {
-                                RED
-                            } else if is_mouse_button_down(MouseButton::Right) {
-
-                                ORANGE
-                            } else {
-                                YELLOW
-                            },
-                        );
-                    }
-
-                    for i in -8..=8 {
-                        let line = i as f32 * grid_size;
-                        draw_line_3d(
-                            vec3(line, 0.01, -8.0 * grid_size),
-                            vec3(line, 0.01, 8.0 * grid_size),
-                            DARKGRAY,
-                        );
-                        draw_line_3d(
-                            vec3(-8.0 * grid_size, 0.01, line),
-                            vec3(8.0 * grid_size, 0.01, line),
-                            DARKGRAY,
-                        );
-                    }
-                } else {
-                    calibration_last_paint = None;
-                }
-
-                let blocked_count = hitbox_config
-                    .get(hitbox_calibration_config_key(&current_key))
-                    .and_then(|entry| match entry {
-                        environment::HitboxConfigEntry::Painted(mask) => {
-                            Some(mask.blocked_cells.len())
-                        }
-                        environment::HitboxConfigEntry::Legacy(_) => None,
-                    })
-                    .unwrap_or(0);
-
-                set_default_camera();
-                draw_rectangle(10.0, 10.0, 360.0, 220.0, Color::new(0.0, 0.0, 0.0, 0.7));
-                draw_text("HITBOX CALIBRATION", 20.0, 35.0, 24.0, YELLOW);
-                draw_text(&format!("MODEL: {}", current_key), 20.0, 65.0, 20.0, WHITE);
-                draw_text(
-                    &format!("BLOCKED CELLS: {}", blocked_count),
-                    20.0,
-                    90.0,
-                    18.0,
-                    GREEN,
-                );
-                draw_text(
-                    &format!(
-                        "Search: {}",
-                        if calibration_search_text.is_empty() {
-                            "(all)"
-                        } else {
-                            &calibration_search_text
-                        }
-                    ),
-                    20.0,
-                    115.0,
-                    18.0,
-                    LIGHTGRAY,
-                );
-                draw_text("LMB Paint | RMB Erase", 20.0, 145.0, 18.0, LIGHTGRAY);
-                draw_text("A/D Orbit | Wheel Zoom", 20.0, 170.0, 18.0, LIGHTGRAY);
-                draw_text("S Save | F2/ESC Exit", 20.0, 195.0, 18.0, LIGHTGRAY);
-                draw_text(
-                    "Click the right panel to search and pick models.",
-                    20.0,
-                    220.0,
-                    18.0,
-                    LIGHTGRAY,
-                );
-
-                draw_rectangle(
-                    sidebar_x,
-                    0.0,
-                    HITBOX_SIDEBAR_WIDTH,
-                    sh,
-                    Color::new(0.08, 0.08, 0.08, 0.95),
-                );
-                draw_line(sidebar_x, 0.0, sidebar_x, sh, 1.0, GRAY);
-                draw_text("HITBOX CALIBRATION", sidebar_x + 10.0, 35.0, 24.0, YELLOW);
-                let search_color = if calibration_search_focused {
-                    Color::new(0.18, 0.18, 0.18, 1.0)
-                } else {
-                    Color::new(0.1, 0.1, 0.1, 1.0)
-                };
-                draw_text("Search:", sidebar_x + 10.0, 54.0, 14.0, GRAY);
-                draw_rectangle(
-                    sidebar_x + 10.0,
-                    search_y,
-                    HITBOX_SIDEBAR_WIDTH - 20.0,
-                    24.0,
-                    search_color,
-                );
-                draw_rectangle_lines(
-                    sidebar_x + 10.0,
-                    search_y,
-                    HITBOX_SIDEBAR_WIDTH - 20.0,
-                    24.0,
-                    1.0,
-                    GRAY,
-                );
-                draw_text(
-                    &calibration_search_text,
-                    sidebar_x + 15.0,
-                    search_y + 16.0,
-                    14.0,
-                    WHITE,
-                );
-                draw_text(
-                    &format!("Selected: {}", current_key),
-                    sidebar_x + 10.0,
-                    110.0,
-                    18.0,
-                    WHITE,
-                );
-                draw_text(
-                    &format!("Model {} / {}", calibration_selected_idx + 1, keys.len()),
-                    sidebar_x + 10.0,
-                    135.0,
-                    18.0,
-                    LIGHTGRAY,
-                );
-                for row in 0..visible_rows {
-                    let idx = calibration_list_scroll + row;
-                    if idx >= keys.len() {
-                        break;
-                    }
-                    let y = list_y + row as f32 * HITBOX_ROW_HEIGHT;
-                    if idx == calibration_selected_idx {
-                        draw_rectangle(
-                            sidebar_x + 5.0,
-                            y,
-                            HITBOX_SIDEBAR_WIDTH - 10.0,
-                            HITBOX_ROW_HEIGHT,
-                            Color::new(0.35, 0.18, 0.04, 1.0),
-                        );
-                    }
-                    let color = if idx == calibration_selected_idx {
-                        YELLOW
-                    } else {
-                        WHITE
-                    };
-                    draw_text(&keys[idx], sidebar_x + 10.0, y + 16.0, 14.0, color);
-                }
+                hitbox_editor.draw_3d(&mut hitbox_config, &mut world_env.sim.templates, world_env.sim.grid_size);
             }
             GameState::Connecting => {
                 let sw = screen_width();
@@ -1402,17 +939,37 @@ async fn main() {
                                     let srv_pos = vec3(ps.x, 0.0, ps.z);
                                     if (hero.pos - srv_pos).length() > 2.0 {
                                         hero.pos = srv_pos;
+                                        println!("[CLIENT] Position hard-snapped to server: ({:.2}, {:.2})", ps.x, ps.z);
                                     } else {
-                                        hero.pos = hero.pos.lerp(srv_pos, 4.0 * delta_time);
+                                        // Use faster lerp for local player to keep pathfinding starts accurate
+                                        hero.pos = hero.pos.lerp(srv_pos, 20.0 * delta_time);
                                     }
-                                    hero.target_pos = vec3(ps.target_x, 0.0, ps.target_z);
-                                    hero.casting_timer = ps.casting_timer;
-                                    hero.stats.current_hp = ps.current_hp;
-                                    hero.stats.max_hp = ps.max_hp;
-                                    hero.stats.current_mp = ps.current_mp;
-                                    hero.stats.max_mp = ps.max_mp;
-                                    hero.is_dead = ps.is_dead;
-                                    hero.revive_progress = ps.revive_progress;
+                                     // Authoritative sync: Always follow the server's current target for animations
+                                     let srv_target = vec3(ps.target_x, 0.0, ps.target_z);
+                                     
+                                     // If the server's final destination has changed, sync the whole path
+                                     let srv_dest = ps.current_path.last().map(|(x, z)| vec3(*x, 0.0, *z));
+                                     let my_dest = hero.current_path.last().copied();
+                                     
+                                     if srv_dest != my_dest || hero.current_path.is_empty() {
+                                         if let Some(dest) = srv_dest {
+                                             hero.current_path = ps.current_path.iter().map(|(x, z)| vec3(*x, 0.0, *z)).collect();
+                                             println!("[CLIENT] Destination changed to ({:.2}, {:.2}). Synced {} nodes.", dest.x, dest.z, hero.current_path.len());
+                                         } else {
+                                             hero.current_path.clear();
+                                         }
+                                     }
+
+                                     // Always use the server's authoritative target for the look-direction
+                                     hero.target_pos = srv_target;
+
+                                     hero.casting_timer = ps.casting_timer;
+                                     hero.stats.current_hp = ps.current_hp;
+                                     hero.stats.max_hp = ps.max_hp;
+                                     hero.stats.current_mp = ps.current_mp;
+                                     hero.stats.max_mp = ps.max_mp;
+                                     hero.is_dead = ps.is_dead;
+                                     hero.revive_progress = ps.revive_progress;
 
                                     // Sync local animation with server authority
                                     let server_state = match ps.anim_state {
@@ -1531,6 +1088,9 @@ async fn main() {
                             } else {
                                 *pos = pos.lerp(srv_pos, 15.0 * delta_time);
                             }
+
+                            // Store paths for debug rendering (if we had a map for it)
+                            // For now let's just focus on the hero.
                         }
 
                         // Sync Gates
@@ -1738,20 +1298,18 @@ async fn main() {
                 } else {
                     // When networked, only update movement animations if NOT currently casting
                     if hero.casting_timer <= 0.0 {
+                        // Advance our local path nodes if the server has already moved past them
+                        // This keeps the debug visualization clean
+                        while !hero.current_path.is_empty() && (hero.current_path[0] - hero.target_pos).length() < 0.1 {
+                            hero.current_path.remove(0);
+                        }
+
                         let to_target = hero.target_pos - hero.pos;
                         if to_target.length() > 0.1 {
                             hero.anim.set_state(AnimationState::Walk);
                             hero.anim.set_direction(to_target);
                         } else {
-                            // Follow path locally even in networked mode for smoothness
-                            if !hero.current_path.is_empty() {
-                                hero.current_path.remove(0);
-                                if let Some(next) = hero.current_path.first() {
-                                    hero.target_pos = *next;
-                                }
-                            } else {
-                                hero.anim.set_state(AnimationState::Idle);
-                            }
+                            hero.anim.set_state(AnimationState::Idle);
                         }
                     }
                 }
@@ -1817,20 +1375,25 @@ async fn main() {
                                 Color::new(1.0, 0.55, 0.0, 0.35),
                             );
                         }
+                    }                    // Draw current path as connected yellow lines + waypoint spheres
+                    let path = &hero.current_path;
+                    
+                    // First segment: hero → current target (only if far enough to matter)
+                    let dist_to_target = (hero.target_pos - hero.pos).length();
+                    if dist_to_target > 0.15 {
+                        draw_line_3d(
+                            hero.pos + vec3(0.0, 0.5, 0.0),
+                            hero.target_pos + vec3(0.0, 0.5, 0.0),
+                            YELLOW,
+                        );
+                        draw_sphere(hero.target_pos + vec3(0.0, 0.5, 0.0), 0.15, None, YELLOW);
                     }
 
-                    // Draw current path as connected yellow lines + waypoint spheres
-                    let path = &hero.current_path;
-                    let mut prev = hero.pos;
-                    // First segment: hero → current target
-                    draw_line_3d(
-                        hero.pos + vec3(0.0, 0.5, 0.0),
-                        hero.target_pos + vec3(0.0, 0.5, 0.0),
-                        YELLOW,
-                    );
-                    draw_sphere(hero.target_pos + vec3(0.0, 0.5, 0.0), 0.15, None, YELLOW);
-
+                    let mut prev = hero.target_pos;
+                    // Skip waypoints that are effectively our current target_pos
                     for waypoint in path.iter() {
+                        if (*waypoint - hero.target_pos).length() < 0.1 { continue; }
+                        
                         draw_line_3d(
                             prev + vec3(0.0, 0.5, 0.0),
                             *waypoint + vec3(0.0, 0.5, 0.0),

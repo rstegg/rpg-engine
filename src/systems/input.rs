@@ -143,28 +143,36 @@ pub fn handle_input(
             if let Some(goal) = camera.get_mouse_ray_intersection() {
                 indicators.spawn_move_marker(goal);
                 // Try direct movement first (Warcraft 3 style)
-                // Use pathfinding_grid (padded) so direct line only happens if there is enough clearance
+                // Only allow direct line movement if the full player radius fits through it.
                 if line_of_sight_fn(
                     hero.pos,
                     goal,
-                    |p| world.is_walkable(p)
+                    |p| world.is_walkable_with_radius(p, 0.35)
                 ) {
+                    println!("[CLIENT] Line of sight clear to ({:.2}, {:.2}). Set target.", goal.x, goal.z);
                     hero.target_pos = goal;
                     hero.current_path.clear();
                 } else {
                     // Obstacle in the way — use A*
-                    if let Some(path) = find_path_fn(
+                    if let Some(mut path) = find_path_fn(
                         hero.pos,
                         goal,
                         0.5,
-                        |p| world.is_walkable(p)
+                        |p| world.is_walkable_with_radius(p, 0.35)
                     ) {
+                        // Remove first node if it's too close to current position to avoid "looking back"
+                        if path.len() > 1 && (path[0] - hero.pos).length() < 0.4 {
+                            path.remove(0);
+                        }
+                        
+                        println!("[CLIENT] Obstacle in way. Found path with {} nodes starting from ({:.2}, {:.2})", path.len(), hero.pos.x, hero.pos.z);
                         hero.current_path = path;
                         if let Some(first) = hero.current_path.first() {
                             hero.target_pos = *first;
+                            println!("[CLIENT] Player next waypoint: ({:.2}, {:.2})", hero.target_pos.x, hero.target_pos.z);
                         }
                     } else {
-                        hero.target_pos = goal;
+                        hero.target_pos = hero.pos;
                         hero.current_path.clear();
                     }
                 }

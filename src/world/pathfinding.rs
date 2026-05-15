@@ -11,6 +11,23 @@ pub struct GridPos {
     pub z: i32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PathfindDiagnostics {
+    pub start_grid: GridPos,
+    pub goal_grid: GridPos,
+    pub start_walkable: bool,
+    pub goal_walkable: bool,
+    pub expanded_nodes: usize,
+    pub min_search_grid: GridPos,
+    pub max_search_grid: GridPos,
+}
+
+#[derive(Clone, Debug)]
+pub struct PathfindResult {
+    pub path: Option<Vec<Vec3>>,
+    pub diagnostics: PathfindDiagnostics,
+}
+
 pub fn line_of_sight(
     start: Vec3,
     goal: Vec3,
@@ -197,38 +214,84 @@ pub fn find_path(
     })
 }
 
-pub fn find_path_fn<F>(
+pub fn find_path_detailed_fn<F>(
     start: Vec3,
     goal: Vec3,
     grid_size: f32,
     mut is_walkable_fn: F,
-) -> Option<Vec<Vec3>>
+) -> PathfindResult
 where
     F: FnMut(Vec3) -> bool,
 {
     let to_grid = |v: Vec3| GridPos {
-        x: (v.x / grid_size).round() as i32,
-        z: (v.z / grid_size).round() as i32,
+        x: (v.x / grid_size).floor() as i32,
+        z: (v.z / grid_size).floor() as i32,
     };
     let from_grid = |g: &GridPos| {
-        vec3(g.x as f32 * grid_size, 0.0, g.z as f32 * grid_size)
+        vec3(
+            g.x as f32 * grid_size + grid_size * 0.5,
+            0.0,
+            g.z as f32 * grid_size + grid_size * 0.5,
+        )
     };
     let start_grid = to_grid(start);
     let goal_grid = to_grid(goal);
-    let max_range = 100;
+    let start_walkable = is_walkable_fn(start);
+    let goal_walkable = is_walkable_fn(goal);
+    let dx = (goal_grid.x - start_grid.x).abs();
+    let dz = (goal_grid.z - start_grid.z).abs();
+    let search_margin = ((dx.max(dz) / 2).max(12)) + 8;
+    let min_search_grid = GridPos {
+        x: start_grid.x.min(goal_grid.x) - search_margin,
+        z: start_grid.z.min(goal_grid.z) - search_margin,
+    };
+    let max_search_grid = GridPos {
+        x: start_grid.x.max(goal_grid.x) + search_margin,
+        z: start_grid.z.max(goal_grid.z) + search_margin,
+    };
+    let mut expanded_nodes = 0usize;
+
+    if !start_walkable || !goal_walkable {
+        return PathfindResult {
+            path: None,
+            diagnostics: PathfindDiagnostics {
+                start_grid,
+                goal_grid,
+                start_walkable,
+                goal_walkable,
+                expanded_nodes,
+                min_search_grid,
+                max_search_grid,
+            },
+        };
+    }
 
     let result = astar(
         &start_grid,
         |p| {
+            expanded_nodes += 1;
             let mut neighbors: Vec<(GridPos, i32)> = Vec::new();
-            if (p.x - start_grid.x).abs() > max_range || (p.z - start_grid.z).abs() > max_range {
-                return neighbors;
-            }
             for dx in -1..=1i32 {
                 for dz in -1..=1i32 {
                     if dx == 0 && dz == 0 { continue; }
                     let nx = p.x + dx;
                     let nz = p.z + dz;
+                    if nx < min_search_grid.x
+                        || nx > max_search_grid.x
+                        || nz < min_search_grid.z
+                        || nz > max_search_grid.z
+                    {
+                        continue;
+                    }
+
+                    if dx != 0 && dz != 0 {
+                        let world_x = from_grid(&GridPos { x: p.x + dx, z: p.z });
+                        let world_z = from_grid(&GridPos { x: p.x, z: p.z + dz });
+                        if !is_walkable_fn(world_x) || !is_walkable_fn(world_z) {
+                            continue;
+                        }
+                    }
+
                     let world_pos = from_grid(&GridPos { x: nx, z: nz });
                     if !is_walkable_fn(world_pos) { continue; }
                     let cost = if dx != 0 && dz != 0 { 14 } else { 10 };
@@ -241,11 +304,36 @@ where
         |p| *p == goal_grid,
     );
 
-    result.map(|(path, _)| {
+    let path = result.map(|(path, _)| {
         let mut waypoints: Vec<Vec3> = path.iter().map(from_grid).collect();
         if let Some(last) = waypoints.last_mut() { *last = goal; }
         waypoints
-    })
+    });
+
+    PathfindResult {
+        path,
+        diagnostics: PathfindDiagnostics {
+            start_grid,
+            goal_grid,
+            start_walkable,
+            goal_walkable,
+            expanded_nodes,
+            min_search_grid,
+            max_search_grid,
+        },
+    }
+}
+
+pub fn find_path_fn<F>(
+    start: Vec3,
+    goal: Vec3,
+    grid_size: f32,
+    is_walkable_fn: F,
+) -> Option<Vec<Vec3>>
+where
+    F: FnMut(Vec3) -> bool,
+{
+    find_path_detailed_fn(start, goal, grid_size, is_walkable_fn).path
 }
 
 impl GridPos {
@@ -274,4 +362,78 @@ fn smooth_path(
     }
     smooth.push(*path.last().unwrap());
     smooth
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_world(_: Vec3) -> bool {
+        true
+    }
+
+    #[test]
+    fn detailed_pathfinding_reports_blocked_goal() {
+        let result = find_path_detailed_fn(
+            vec3(0.5, 0.0, 0.5),
+            vec3(2.5, 0.0, 0.5),
+            1.0,
+            |p| !(p.x >= 2.0 && p.x < 3.0 && p.z >= 0.0 && p.z < 1.0),
+        );
+
+        assert!(result.path.is_none());
+        assert!(result.diagnostics.start_walkable);
+        assert!(!result.diagnostics.goal_walkable);
+        assert_eq!(result.diagnostics.start_grid, GridPos { x: 0, z: 0 });
+        assert_eq!(result.diagnostics.goal_grid, GridPos { x: 2, z: 0 });
+        assert_eq!(result.diagnostics.expanded_nodes, 0);
+    }
+
+    #[test]
+    fn pathfinding_supports_long_paths_beyond_old_search_cap() {
+        let path = find_path_fn(
+            vec3(0.5, 0.0, 0.5),
+            vec3(60.5, 0.0, 0.5),
+            1.0,
+            open_world,
+        )
+        .expect("expected an open-world path");
+
+        assert!(path.len() > 50, "expected many waypoints for a long path");
+        let last = *path.last().expect("path should contain a goal waypoint");
+        assert!((last.x - 60.5).abs() < 0.01);
+        assert!((last.z - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn pathfinding_returns_goal_in_open_space() {
+        let path = find_path_fn(
+            vec3(0.5, 0.0, 0.5),
+            vec3(5.5, 0.0, 5.5),
+            1.0,
+            open_world,
+        )
+        .expect("expected a path through open space");
+
+        assert!(path.len() >= 2);
+        let last = *path.last().expect("path should contain a goal waypoint");
+        assert!((last.x - 5.5).abs() < 0.01);
+        assert!((last.z - 5.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn pathfinding_rejects_diagonal_corner_cutting() {
+        let path = find_path_fn(
+            vec3(0.5, 0.0, 0.5),
+            vec3(1.5, 0.0, 1.5),
+            1.0,
+            |p| {
+                let blocked_x = p.x >= 1.0 && p.x < 2.0 && p.z >= 0.0 && p.z < 1.0;
+                let blocked_z = p.x >= 0.0 && p.x < 1.0 && p.z >= 1.0 && p.z < 2.0;
+                !(blocked_x || blocked_z)
+            },
+        );
+
+        assert!(path.is_none(), "diagonal corner cut should be rejected");
+    }
 }

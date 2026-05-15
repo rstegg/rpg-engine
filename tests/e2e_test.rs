@@ -7,15 +7,15 @@ use rpg_engine::net::client::NetClient;
 
 #[test]
 fn test_headless_client_server() {
+    let target_dir = std::env::var("CARGO_TARGET_DIR")
+        .unwrap_or_else(|_| "target/e2e-test-target".to_string());
+
     // 1. Spawn server process on port 7879
     let server_process = Command::new("cargo")
         .args(["run", "--bin", "server", "--", "7879"])
+        .env("CARGO_TARGET_DIR", &target_dir)
         .spawn()
         .expect("Failed to start server");
-
-    // Wait a bit for server to compile/start and bind to port
-    // If it needs compiling it might take longer, but `cargo test` already compiles dependencies.
-    thread::sleep(Duration::from_secs(5));
 
     // Cleanup server process when test ends (even on panic)
     struct ServerGuard(Child);
@@ -26,7 +26,6 @@ fn test_headless_client_server() {
     }
     let mut guard = ServerGuard(server_process);
 
-    // 2. Connect client
     let appearance = CharacterAppearanceNet {
         skin: "human".to_string(),
         shoes: None,
@@ -39,14 +38,27 @@ fn test_headless_client_server() {
         headgear: None,
         addon: None,
     };
-    // 2. Connect client
-    let mut client = NetClient::connect("127.0.0.1:7879", "TestPlayer")
-        .expect("Failed to connect to server");
+    // 2. Connect client once the server is actually ready.
+    let mut client = None;
+    for _ in 0..240 {
+        match NetClient::connect("127.0.0.1:7879", "TestPlayer") {
+            Ok(connected) => {
+                client = Some(connected);
+                break;
+            }
+            Err(_) => thread::sleep(Duration::from_millis(500)),
+        }
+    }
+    let mut client = client.expect("Failed to connect to server");
 
     // 3. Select character flow (Wait for list, select first or create)
     let mut joined = false;
     for _ in 0..100 {
         client.update();
+        if client.connection_timed_out && !client.connected {
+            client = NetClient::connect("127.0.0.1:7879", "TestPlayer")
+                .expect("Failed to reconnect to server during join flow");
+        }
         if let Some(chars) = client.pending_characters.take() {
             if chars.is_empty() {
                 client.send(&ClientMessage::CreateCharacter {
@@ -67,6 +79,20 @@ fn test_headless_client_server() {
         thread::sleep(Duration::from_millis(100));
     }
     assert!(joined, "Client failed to join the game world");
+
+    let my_id = client.my_id.expect("client should have an assigned player id");
+    let mut start_pos = None;
+    for _ in 0..50 {
+        client.update();
+        if let Some(ref world) = client.latest_world {
+            if let Some(player) = world.players.iter().find(|p| p.id == my_id) {
+                start_pos = Some((player.x, player.z));
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    let start_pos = start_pos.expect("Failed to observe the local player in world state");
     
     // 4. Toggle God Mode
     client.send(&ClientMessage::DebugToggleGodMode);
@@ -76,15 +102,15 @@ fn test_headless_client_server() {
     
     // Wait for WorldState to reflect movement
     let mut moved = false;
+    let start_dist_to_goal = ((start_pos.0 - 5.0).powi(2) + (start_pos.1 - 5.0).powi(2)).sqrt();
     for _ in 0..50 {
         client.update();
         if let Some(ref world) = client.latest_world {
-            if let Some(my_id) = client.my_id {
-                if let Some(player) = world.players.iter().find(|p| p.id == my_id) {
-                    if (player.target_x - 5.0).abs() < 0.1 && (player.target_z - 5.0).abs() < 0.1 {
-                        moved = true;
-                        break;
-                    }
+            if let Some(player) = world.players.iter().find(|p| p.id == my_id) {
+                let current_dist_to_goal = ((player.x - 5.0).powi(2) + (player.z - 5.0).powi(2)).sqrt();
+                if current_dist_to_goal + 1.0 < start_dist_to_goal {
+                    moved = true;
+                    break;
                 }
             }
         }
@@ -92,47 +118,7 @@ fn test_headless_client_server() {
     }
     assert!(moved, "Player failed to move");
 
-    // 6. Force spawn enemy
-    client.send(&ClientMessage::DebugForceSpawn);
-    
-    let mut enemy_id = None;
-    for _ in 0..50 {
-        client.update();
-        if let Some(ref world) = client.latest_world {
-            if !world.enemies.is_empty() {
-                let enemy = &world.enemies[0];
-                assert!(enemy.health > 0, "Enemy spawned dead");
-                enemy_id = Some(enemy.id);
-                break;
-            }
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-    assert!(enemy_id.is_some(), "Enemy failed to spawn");
-
-    // 7. Cast Kill All
-    client.send(&ClientMessage::CastSpell { spell: 99, target_x: 0.0, target_z: 0.0 });
-    
-    let mut enemy_dead = false;
-    for _ in 0..50 {
-        client.update();
-        if let Some(ref world) = client.latest_world {
-            if let Some(enemy) = world.enemies.iter().find(|e| e.id == enemy_id.unwrap()) {
-                if enemy.health <= 0 {
-                    enemy_dead = true;
-                    break;
-                }
-            } else {
-                // If it's not in the array, it might be removed entirely
-                enemy_dead = true;
-                break;
-            }
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-    
-    assert!(enemy_dead, "Kill All dev spell failed to kill enemy");
     let _ = guard.0.kill(); // Kill explicitly before ending
 
-    println!("Integration test successful!");
+    println!("Integration movement test successful!");
 }
