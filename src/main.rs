@@ -1666,7 +1666,8 @@ async fn main() {
                         if screen_pos.z >= -1.0 && screen_pos.z <= 1.0 {
                             let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
                             let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
-                            nameplates_2d.push((x, y, hero.name.clone(), WHITE));
+                            let hp_pct = hero.stats.current_hp as f32 / hero.stats.max_hp as f32;
+                            nameplates_2d.push((x, y, hero.name.clone(), WHITE, hp_pct));
                         }
                     }
                     // Remote Players
@@ -1680,7 +1681,8 @@ async fn main() {
                                     if screen_pos.z >= -1.0 && screen_pos.z <= 1.0 {
                                         let x = (screen_pos.x + 1.0) / 2.0 * screen_width();
                                         let y = (1.0 - screen_pos.y) / 2.0 * screen_height();
-                                        nameplates_2d.push((x, y, name.clone(), Color::new(0.8, 0.9, 1.0, 1.0)));
+                                        let hp_pct = ps.current_hp as f32 / ps.max_hp as f32;
+                                        nameplates_2d.push((x, y, name.clone(), Color::new(0.8, 0.9, 1.0, 1.0), hp_pct));
                                     }
                                 }
                             }
@@ -1711,13 +1713,24 @@ async fn main() {
                     draw_rectangle(x - bar_w / 2.0, y - bar_h / 2.0, bar_w * hp_pct, bar_h, GREEN);
                 }
 
-                for (x, y, name, color) in nameplates_2d {
+                for (x, y, name, color, hp_pct) in nameplates_2d {
                     let font_size = 20.0;
                     let tw = measure_text(&name, None, font_size as u16, 1.0).width;
-                    let bg_w = tw + 10.0;
-                    let bg_h = 24.0;
+                    let bg_w = tw.max(40.0) + 10.0;
+                    let bg_h = 32.0; // Taller to fit HP bar
+                    
+                    // Background
                     draw_rectangle(x - bg_w / 2.0, y - bg_h / 2.0, bg_w, bg_h, Color::new(0.0, 0.0, 0.0, 0.6));
-                    draw_text(&name, x - tw / 2.0, y + 6.0, font_size, color);
+                    
+                    // Name
+                    draw_text(&name, x - tw / 2.0, y + 2.0, font_size, color);
+                    
+                    // HP Bar
+                    let hp_bar_w = bg_w - 10.0;
+                    let hp_bar_h = 4.0;
+                    let hp_bar_y = y + 8.0;
+                    draw_rectangle(x - hp_bar_w / 2.0, hp_bar_y, hp_bar_w, hp_bar_h, RED);
+                    draw_rectangle(x - hp_bar_w / 2.0, hp_bar_y, hp_bar_w * hp_pct.clamp(0.0, 1.0), hp_bar_h, GREEN);
                 }
                 
                 ui::hud::draw_hud(&hero, &assets);
