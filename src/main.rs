@@ -1298,10 +1298,16 @@ async fn main() {
                 } else {
                     // When networked, only update movement animations if NOT currently casting
                     if hero.casting_timer <= 0.0 {
-                        // Advance our local path nodes if the server has already moved past them
-                        // This keeps the debug visualization clean
-                        while !hero.current_path.is_empty() && (hero.current_path[0] - hero.target_pos).length() < 0.1 {
-                            hero.current_path.remove(0);
+                        // Aggressively prune nodes that we've already reached or passed locally
+                        // This ensures the debug path stays ahead of the character visually
+                        while !hero.current_path.is_empty() {
+                            let dist_to_node = (hero.current_path[0] - hero.pos).length();
+                            // If we are close to the first node, or if the server's target is already past it
+                            if dist_to_node < 0.6 || (hero.current_path[0] - hero.target_pos).length() < 0.1 {
+                                hero.current_path.remove(0);
+                            } else {
+                                break;
+                            }
                         }
 
                         let to_target = hero.target_pos - hero.pos;
