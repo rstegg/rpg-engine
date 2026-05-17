@@ -118,6 +118,7 @@ pub struct ChunkedWorld {
     pub town_world_bounds: Option<(f32, f32, f32, f32)>, // world range: min_x, max_x, min_z, max_z
     pub town_ground_bounds: Option<(f32, f32, f32, f32)>, // ground-specific world range
     pub hitbox_mtime: Option<std::time::SystemTime>,
+    pub cached_gate_mask: Option<crate::world::environment::HitboxPaintedMask>,
 }
 
 impl ChunkedWorld {
@@ -137,6 +138,14 @@ impl ChunkedWorld {
             find_hitbox_config_entry(&self.hitbox_config, key),
             GRID_SIZE,
         ))
+    }
+
+    pub fn update_cached_masks(&mut self) {
+        if self.templates.contains_key("gate") {
+            self.cached_gate_mask = self.gate_mask("gate");
+        } else {
+            self.cached_gate_mask = None;
+        }
     }
 
     fn register_gate(&mut self, chunk: ChunkCoord, position: Vec3, base_rotation: f32) {
@@ -223,6 +232,9 @@ impl ChunkedWorld {
 
         if let Some(template) = load_glb_template_sync(&format!("assets/world_models/{file}")) {
             self.templates.insert(model.to_string(), template);
+            if model == "gate" {
+                self.update_cached_masks();
+            }
         }
     }
 
@@ -239,7 +251,7 @@ impl ChunkedWorld {
         let town_mtime = std::fs::metadata("assets/clusters/town.json").ok().and_then(|m| m.modified().ok());
         let hitbox_mtime = std::fs::metadata("hitbox_config.json").ok().and_then(|m| m.modified().ok());
 
-        Self {
+        let mut world = Self {
             chunks: HashMap::new(),
             render_data: HashMap::new(),
             templates,
@@ -253,7 +265,10 @@ impl ChunkedWorld {
             town_world_bounds,
             town_ground_bounds,
             hitbox_mtime,
-        }
+            cached_gate_mask: None,
+        };
+        world.update_cached_masks();
+        world
     }
 
     pub fn get_biome_at(&self, coord: ChunkCoord) -> BiomeType {
@@ -326,6 +341,7 @@ impl ChunkedWorld {
                             self.chunks.clear();
                             self.render_data.clear();
                             self.gates.clear();
+                            self.update_cached_masks();
                             changed = true;
                             println!("[HOT RELOAD] Reloaded hitbox_config.json");
                         }
@@ -651,10 +667,11 @@ impl ChunkedWorld {
         }
 
         // 2. Check dynamic gates
-        let closed_mask = self.gate_mask("gate");
-        let open_mask = self.gate_mask("gate_open");
-
         for gate in &self.gates {
+            if gate.state != GateState::Locked {
+                continue; // Pass-through for unlocked gates
+            }
+
             let dx = gate.position.x - pos.x;
             let dz = gate.position.z - pos.z;
             if dx * dx + dz * dz
@@ -663,13 +680,7 @@ impl ChunkedWorld {
                 continue;
             }
 
-            let mask = if gate.mask_key() == "gate_open" {
-                open_mask.as_ref()
-            } else {
-                closed_mask.as_ref()
-            };
-
-            let Some(mask) = mask else {
+            let Some(mask) = self.cached_gate_mask.as_ref() else {
                 continue;
             };
 

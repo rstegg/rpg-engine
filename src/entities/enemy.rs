@@ -253,7 +253,9 @@ impl EnemyDirector {
             self.wave_timer -= dt;
             if self.wave_timer <= 0.0 {
                 self.wave_timer = self.wave_interval;
-                self.spawn_wave(hero.pos, world);
+                if self.active_enemies.len() < 30 {
+                    self.spawn_wave(hero.pos, world);
+                }
             }
         }
 
@@ -305,7 +307,13 @@ impl EnemyDirector {
                         if to_spawn.length() > 0.2 {
                             enemy.target_pos = enemy.spawn_pos;
                             let speed = enemy.stats.get_movement_speed();
-                            enemy.pos += to_spawn.normalize() * speed * dt;
+                            let desired = enemy.pos + to_spawn.normalize() * speed * dt;
+                            enemy.pos = crate::world::pathfinding::slide_move_world(
+                                enemy.pos,
+                                desired,
+                                0.35,
+                                |p| world.is_walkable(p)
+                            );
                             enemy.anim.set_state(AnimationState::Walk);
                             enemy.anim.set_direction(to_spawn);
                         } else {
@@ -326,7 +334,7 @@ impl EnemyDirector {
                         if crate::world::pathfinding::line_of_sight_fn(
                             enemy.pos,
                             hero.pos,
-                            |p| world.is_walkable(p)
+                            |p| world.is_walkable_with_radius(p, 0.35)
                         ) {
                             enemy.current_path.clear();
                             enemy.target_pos = hero.pos;
@@ -335,7 +343,7 @@ impl EnemyDirector {
                                 enemy.pos,
                                 hero.pos,
                                 0.5,
-                                |p| world.is_walkable(p)
+                                |p| world.is_walkable_with_radius(p, 0.35)
                             ) {
                                 enemy.current_path = path;
                                 if let Some(first) = enemy.current_path.first() {

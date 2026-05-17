@@ -68,6 +68,65 @@ where
     true
 }
 
+pub fn find_closest_walkable_fn<F>(
+    target: Vec3,
+    max_radius_cells: i32,
+    grid_size: f32,
+    mut is_walkable_fn: F,
+) -> Vec3
+where
+    F: FnMut(Vec3) -> bool,
+{
+    let target_gx = (target.x / grid_size).floor() as i32;
+    let target_gz = (target.z / grid_size).floor() as i32;
+    let center = vec3(
+        target_gx as f32 * grid_size + grid_size * 0.5,
+        target.y,
+        target_gz as f32 * grid_size + grid_size * 0.5,
+    );
+
+    if is_walkable_fn(target) && is_walkable_fn(center) {
+        return target;
+    }
+
+    if is_walkable_fn(center) {
+        return center;
+    }
+
+    let mut closest = target;
+    let mut min_dist_sq = f32::MAX;
+
+    for r in 1..=max_radius_cells {
+        for dx in -r..=r {
+            for dz in -r..=r {
+                if dx.abs() != r && dz.abs() != r {
+                    continue;
+                }
+                
+                let check_pos = vec3(
+                    center.x + dx as f32 * grid_size,
+                    center.y,
+                    center.z + dz as f32 * grid_size,
+                );
+                
+                if is_walkable_fn(check_pos) {
+                    let dist_sq = (check_pos.x - target.x).powi(2) + (check_pos.z - target.z).powi(2);
+                    if dist_sq < min_dist_sq {
+                        min_dist_sq = dist_sq;
+                        closest = check_pos;
+                    }
+                }
+            }
+        }
+        
+        if min_dist_sq < f32::MAX {
+            return closest;
+        }
+    }
+
+    target
+}
+
 fn sample_walkable(
     p: Vec3,
     grid_size: f32,
@@ -251,7 +310,7 @@ where
     };
     let mut expanded_nodes = 0usize;
 
-    if !start_walkable || !goal_walkable {
+    if !start_walkable {
         return PathfindResult {
             path: None,
             diagnostics: PathfindDiagnostics {
@@ -266,47 +325,80 @@ where
         };
     }
 
-    let result = astar(
-        &start_grid,
-        |p| {
-            expanded_nodes += 1;
-            let mut neighbors: Vec<(GridPos, i32)> = Vec::new();
-            for dx in -1..=1i32 {
-                for dz in -1..=1i32 {
-                    if dx == 0 && dz == 0 { continue; }
-                    let nx = p.x + dx;
-                    let nz = p.z + dz;
-                    if nx < min_search_grid.x
-                        || nx > max_search_grid.x
-                        || nz < min_search_grid.z
-                        || nz > max_search_grid.z
-                    {
-                        continue;
-                    }
+    let mut closest_node = start_grid.clone();
+    let goal_x = goal_grid.x;
+    let goal_z = goal_grid.z;
+    let mut min_h = (start_grid.x - goal_x).abs() + (start_grid.z - goal_z).abs();
 
-                    if dx != 0 && dz != 0 {
-                        let world_x = from_grid(&GridPos { x: p.x + dx, z: p.z });
-                        let world_z = from_grid(&GridPos { x: p.x, z: p.z + dz });
-                        if !is_walkable_fn(world_x) || !is_walkable_fn(world_z) {
+    let mut current_target_grid = goal_grid.clone();
+    let mut fallback_triggered = false;
+    let mut result = None;
+
+    for pass in 0..2 {
+        result = astar(
+            &start_grid,
+            |p| {
+                expanded_nodes += 1;
+                let mut neighbors: Vec<(GridPos, i32)> = Vec::new();
+                for dx in -1..=1i32 {
+                    for dz in -1..=1i32 {
+                        if dx == 0 && dz == 0 { continue; }
+                        let nx = p.x + dx;
+                        let nz = p.z + dz;
+                        if nx < min_search_grid.x
+                            || nx > max_search_grid.x
+                            || nz < min_search_grid.z
+                            || nz > max_search_grid.z
+                        {
                             continue;
                         }
-                    }
 
-                    let world_pos = from_grid(&GridPos { x: nx, z: nz });
-                    if !is_walkable_fn(world_pos) { continue; }
-                    let cost = if dx != 0 && dz != 0 { 14 } else { 10 };
-                    neighbors.push((GridPos { x: nx, z: nz }, cost));
+                        if dx != 0 && dz != 0 {
+                            let world_x = from_grid(&GridPos { x: p.x + dx, z: p.z });
+                            let world_z = from_grid(&GridPos { x: p.x, z: p.z + dz });
+                            if !is_walkable_fn(world_x) || !is_walkable_fn(world_z) {
+                                continue;
+                            }
+                        }
+
+                        let world_pos = from_grid(&GridPos { x: nx, z: nz });
+                        if !is_walkable_fn(world_pos) { continue; }
+
+                        if pass == 0 {
+                            let h = (nx - goal_x).abs() + (nz - goal_z).abs();
+                            if h < min_h {
+                                min_h = h;
+                                closest_node = GridPos { x: nx, z: nz };
+                            }
+                        }
+
+                        let cost = if dx != 0 && dz != 0 { 14 } else { 10 };
+                        neighbors.push((GridPos { x: nx, z: nz }, cost));
+                    }
                 }
-            }
-            neighbors
-        },
-        |p| ((p.x - goal_grid.x).abs() + (p.z - goal_grid.z).abs()) * 10,
-        |p| *p == goal_grid,
-    );
+                neighbors
+            },
+            |p| ((p.x - current_target_grid.x).abs() + (p.z - current_target_grid.z).abs()) * 10,
+            |p| *p == current_target_grid,
+        );
+
+        if result.is_some() || pass == 1 {
+            break;
+        }
+
+        if closest_node == start_grid {
+            break;
+        }
+
+        current_target_grid = closest_node.clone();
+        fallback_triggered = true;
+    }
 
     let path = result.map(|(path, _)| {
         let mut waypoints: Vec<Vec3> = path.iter().map(from_grid).collect();
-        if let Some(last) = waypoints.last_mut() { *last = goal; }
+        if !fallback_triggered && goal_walkable {
+            if let Some(last) = waypoints.last_mut() { *last = goal; }
+        }
         waypoints
     });
 

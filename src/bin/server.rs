@@ -7,7 +7,7 @@ use rpg_engine::net::protocol::*;
 
 use rpg_engine::world::environment::{HitboxConfig, builtin_template_defs, load_glb_template_sync};
 use rpg_engine::world::chunk::{ChunkedWorld, ChunkCoord, BiomeType};
-use rpg_engine::world::pathfinding::{find_path_detailed_fn, slide_move_world};
+use rpg_engine::world::pathfinding::{find_path_detailed_fn, slide_move_world, find_closest_walkable_fn};
 use macroquad::math::{Vec3, vec3};
 
 use std::collections::{HashMap, HashSet};
@@ -146,6 +146,7 @@ fn main() {
             world.templates.insert(key.to_string(), t);
         }
     }
+    world.update_cached_masks();
 
     let mut last_tick = Instant::now();
     let mut last_broadcast = Instant::now();
@@ -447,7 +448,7 @@ fn main() {
                             enemy.next_path_recalc = 0.5;
                             let start = vec3(enemy.x, 0.0, enemy.z);
                             let goal = vec3(target.x, 0.0, target.z);
-                            let result = find_path_detailed_fn(start, goal, 0.5, |p| world.is_walkable(p));
+                            let result = find_path_detailed_fn(start, goal, 0.5, |p| world.is_walkable_with_radius(p, 0.35));
                             if let Some(mut path) = result.path {
                                 if path.len() > 1 && (path[0] - vec3(enemy.x, 0.0, enemy.z)).length() < 0.5 {
                                     path.remove(0);
@@ -469,13 +470,22 @@ fn main() {
                             if dist > 0.1 {
                                 let speed = 3.5;
                                 let move_dist = speed * dt;
-                                if move_dist >= dist {
-                                    enemy.x = enemy.target_x;
-                                    enemy.z = enemy.target_z;
-                                    enemy.current_path.remove(0);
+                                let current_pos = vec3(enemy.x, 0.0, enemy.z);
+                                let desired_pos = if move_dist >= dist {
+                                    vec3(enemy.target_x, 0.0, enemy.target_z)
                                 } else {
-                                    enemy.x += (dx / dist) * move_dist;
-                                    enemy.z += (dz / dist) * move_dist;
+                                    current_pos + vec3(dx, 0.0, dz).normalize() * move_dist
+                                };
+                                let new_pos = slide_move_world(
+                                    current_pos,
+                                    desired_pos,
+                                    0.35,
+                                    |p| world.is_walkable(p)
+                                );
+                                enemy.x = new_pos.x;
+                                enemy.z = new_pos.z;
+                                if move_dist >= dist {
+                                    enemy.current_path.remove(0);
                                 }
                                 enemy.anim_state = 1; // Walk
                                 let mut angle = f32::atan2(dx, dz);
@@ -499,13 +509,20 @@ fn main() {
                         if dist > 0.1 {
                             let speed = 3.5;
                             let move_dist = speed * dt;
-                            if move_dist >= dist {
-                                enemy.x = enemy.target_x;
-                                enemy.z = enemy.target_z;
+                            let current_pos = vec3(enemy.x, 0.0, enemy.z);
+                            let desired_pos = if move_dist >= dist {
+                                vec3(enemy.target_x, 0.0, enemy.target_z)
                             } else {
-                                enemy.x += (dx / dist) * move_dist;
-                                enemy.z += (dz / dist) * move_dist;
-                            }
+                                current_pos + vec3(dx, 0.0, dz).normalize() * move_dist
+                            };
+                            let new_pos = slide_move_world(
+                                current_pos,
+                                desired_pos,
+                                0.35,
+                                |p| world.is_walkable(p)
+                            );
+                            enemy.x = new_pos.x;
+                            enemy.z = new_pos.z;
                             enemy.anim_state = 1; 
                             let mut angle = f32::atan2(dx, dz);
                             if angle < 0.0 { angle += std::f32::consts::PI * 2.0; }
@@ -751,7 +768,14 @@ fn handle_client_message(
 
                 // Calculate path to destination
                 let start = vec3(player.x, 0.0, player.z);
-                let goal = vec3(x, 0.0, z);
+                let mut goal = vec3(x, 0.0, z);
+
+                // --- SNAP TO CLOSEST WALKABLE TILE ---
+                let is_walkable = world.is_walkable_with_radius(goal, 0.35);
+                if !is_walkable {
+                    goal = find_closest_walkable_fn(goal, 50, 0.5, |p| world.is_walkable_with_radius(p, 0.35));
+                }
+                // -------------------------------------
 
                 let result = find_path_detailed_fn(start, goal, 0.5, |p| {
                     world.is_walkable_with_radius(p, 0.35)

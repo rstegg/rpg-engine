@@ -293,6 +293,7 @@ async fn main() {
     let mut net_client: Option<NetClient> = None;
     let mut server_addr = String::from("71.127.210.74:7878");
     let mut login_username = String::new();
+    let mut is_local_server = false;
     let mut login_error: Option<String> = None;
     let mut character_list: Vec<net::protocol::CharacterSummaryNet> = Vec::new();
     let mut char_select_scroll = 0usize;
@@ -368,6 +369,18 @@ async fn main() {
                                 .hint_text("Enter username…")
                         );
                         if ur.changed() { egui_login_changed = true; }
+
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut is_local_server, true, "Local Server");
+                            ui.radio_value(&mut is_local_server, false, "Online Server");
+                        });
+
+                        if is_local_server {
+                            server_addr = String::from("127.0.0.1:7878");
+                        } else {
+                            server_addr = String::from("71.127.210.74:7878");
+                        }
                     });
             }
 
@@ -594,6 +607,14 @@ async fn main() {
                             });
                             creator.confirmed_already_sent = true;
                             creator.error_message = None;
+                        } else {
+                            if let Ok(_) = creator.appearance.save_to_file("character.json") {
+                                hero.name = creator.character_name.trim().to_string();
+                                creator.confirmed = true;
+                            } else {
+                                creator.error_message = Some("Failed to save character".to_string());
+                                creator.confirmed = false;
+                            }
                         }
                     }
                 }
@@ -615,10 +636,21 @@ async fn main() {
                             creator.confirmed = false;
                             creator.confirmed_already_sent = false;
                         }
+                    } else {
+                        char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
+                        game_state = GameState::Playing;
+                        creator.confirmed = false;
+                        creator.confirmed_already_sent = false;
+                        creator.character_name.clear();
+                        creator.error_message = None;
                     }
                 }
                 if is_key_pressed(KeyCode::Escape) {
-                    game_state = GameState::CharacterSelect;
+                    if net_client.is_some() {
+                        game_state = GameState::CharacterSelect;
+                    } else {
+                        game_state = GameState::Playing;
+                    }
                 }
             }
             GameState::HitboxCalibration => {
@@ -1022,7 +1054,6 @@ async fn main() {
                         };
                         chunk_world.insert_chunk(coord, biome, placements);
                     }
-                    chunk_world.update(hero.pos, 2, true);
 
                     // Apply server world state
                     if let Some(ref world) = client.latest_world {
@@ -1203,6 +1234,9 @@ async fn main() {
                     }
                 }
 
+                // Local chunk generation (single player, or client-side missing chunks)
+                chunk_world.update(hero.pos, 2, true);
+
                 let current_mouse_pos = mouse_position();
                 game_camera.update(hero.pos);
                 if debug_pathfinding && is_mouse_button_down(MouseButton::Middle) {
@@ -1257,7 +1291,12 @@ async fn main() {
                         && !hero.is_dead
                         && !show_escape_menu
                     {
-                        if let Some(pos) = game_camera.get_mouse_ray_intersection() {
+                        if let Some(mut pos) = game_camera.get_mouse_ray_intersection() {
+                            let is_walkable = chunk_world.is_walkable_with_radius(pos, 0.35);
+                            if !is_walkable {
+                                use rpg_engine::world::pathfinding::find_closest_walkable_fn;
+                                pos = find_closest_walkable_fn(pos, 50, 0.5, |p| chunk_world.is_walkable_with_radius(p, 0.35));
+                            }
                             client.send(&ClientMessage::MoveTo { x: pos.x, z: pos.z });
                         }
                     }

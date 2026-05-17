@@ -140,7 +140,14 @@ pub fn handle_input(
         if hero.targeting_state != TargetingState::None {
             hero.targeting_state = TargetingState::None;
         } else if hero.casting_timer <= 0.0 {
-            if let Some(goal) = camera.get_mouse_ray_intersection() {
+            if let Some(mut goal) = camera.get_mouse_ray_intersection() {
+                // Snap goal to closest walkable tile if unwalkable
+                let is_walkable = world.is_walkable_with_radius(goal, 0.35);
+                if !is_walkable {
+                    use crate::world::pathfinding::find_closest_walkable_fn;
+                    goal = find_closest_walkable_fn(goal, 50, 0.5, |p| world.is_walkable_with_radius(p, 0.35));
+                }
+
                 indicators.spawn_move_marker(goal);
                 // Try direct movement first (Warcraft 3 style)
                 // Only allow direct line movement if the full player radius fits through it.
