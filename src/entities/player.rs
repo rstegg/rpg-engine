@@ -1,4 +1,6 @@
 use crate::core::animation::AnimationManager;
+use crate::entities::character::CharacterAppearance;
+use crate::entities::item::Equipment;
 use macroquad::prelude::*;
 
 /// Returned when the player casts a spell, so networking can forward it.
@@ -73,6 +75,10 @@ pub struct Hero {
     pub target_pos: Vec3,
     pub current_path: Vec<Vec3>,
     pub stats: Stats,
+    pub scale: f32,
+    pub base_appearance: CharacterAppearance,
+    pub current_appearance: CharacterAppearance,
+    pub equipment: Equipment,
     pub anim: AnimationManager,
     pub targeting_state: TargetingState,
     pub casting_timer: f32, // Locks movement/animation while > 0
@@ -81,4 +87,35 @@ pub struct Hero {
     pub is_dead: bool,
     pub revive_progress: f32,
     pub last_click_time: std::time::Instant,
+}
+
+impl Hero {
+    /// Recalculates the `current_appearance` based on the `base_appearance`
+    /// and the currently equipped items.
+    pub fn update_appearance_from_equipment(&mut self) {
+        self.current_appearance = self.base_appearance.clone();
+        
+        if let Some(ref item) = self.equipment.head {
+            self.current_appearance.headgear = Some(item.layer_name.clone());
+        }
+        if let Some(ref item) = self.equipment.body {
+            self.current_appearance.clothes = Some(item.layer_name.clone());
+        }
+        if let Some(ref item) = self.equipment.hands {
+            self.current_appearance.gloves = Some(item.layer_name.clone());
+        }
+        if let Some(ref item) = self.equipment.feet {
+            self.current_appearance.shoes = Some(item.layer_name.clone());
+        }
+        if let Some(ref item) = self.equipment.weapon {
+            // Weapon layer mapping? Depending on how weapons are rendered.
+            // Currently, 'addon' might be used for weapons or shields.
+            // Or we might need a `weapon` field in CharacterAppearance later.
+            // Let's map it to 'addon' for now if we don't have 'weapon'
+            self.current_appearance.addon = Some(item.layer_name.clone());
+        }
+        if let Some(ref item) = self.equipment.addon {
+            self.current_appearance.addon = Some(item.layer_name.clone());
+        }
+    }
 }

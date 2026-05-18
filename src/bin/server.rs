@@ -43,7 +43,8 @@ struct ServerPlayer {
     revive_timer: f32,
     is_invulnerable: bool,
     loaded_chunks: HashSet<ChunkCoord>,
-    current_path: Vec<Vec3>,
+    pub current_path: Vec<Vec3>,
+    pub team: TeamId,
     // ─── Persistence ───
     account_id: i32,
     character_id: i32,
@@ -75,15 +76,30 @@ struct ServerEnemy {
     direction: u8,
     anim_state: u8,
     health: i32,
-    max_health: i32,
-    current_path: Vec<Vec3>,
-    next_path_recalc: f32,
+    pub max_health: i32,
+    pub current_path: Vec<Vec3>,
+    pub team: TeamId,
+    pub next_path_recalc: f32,
     death_timer: f32,
     hurt_timer: f32,
-    attack_timer: f32,
-    spawn_x: f32,
-    spawn_z: f32,
+    pub attack_timer: f32,
+    pub spawn_x: f32,
+    pub spawn_z: f32,
 }
+
+struct ServerBuilding {
+    id: u64,
+    building_type: String,
+    x: f32,
+    z: f32,
+    health: i32,
+    max_health: i32,
+    team: TeamId,
+    construction_progress: f32, // 0.0 to 1.0
+    active_production: Option<(String, f32)>, // unit_type, progress 0.0-1.0
+    production_queue: Vec<String>,
+}
+
 
 fn log_path_failure(label: &str, start: Vec3, goal: Vec3, diagnostics: &rpg_engine::world::pathfinding::PathfindDiagnostics) {
     println!(
@@ -126,10 +142,12 @@ fn main() {
     let mut sessions: HashMap<u64, SocketAddr> = HashMap::new();
     let mut enemies: HashMap<u64, ServerEnemy> = HashMap::new();
     let mut effects: Vec<ActiveEffect> = Vec::new();
+    let mut buildings: HashMap<u64, ServerBuilding> = HashMap::new();
     
     let mut next_player_id: PlayerId = 1;
     let mut next_enemy_id: u64 = 1;
     let mut next_effect_id: u64 = 1;
+    let mut next_building_id: u64 = 1;
     let mut server_tick: u64 = 0;
 
     let hitbox_config: HitboxConfig = match std::fs::read_to_string("hitbox_config.json") {
@@ -179,7 +197,7 @@ fn main() {
                             if world.is_walkable(vec3(sx, 0.0, sz)) && world.get_biome_at(spawn_chunk) != BiomeType::Town {
                                 enemies.insert(next_enemy_id, ServerEnemy {
                                     id: next_enemy_id, race_idx: rng.gen_range(0..6) as usize, x: sx, z: sz, target_x: sx, target_z: sz, direction: 0, anim_state: 0, health: 100, max_health: 100,
-                                    current_path: Vec::new(), next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
+                                    current_path: Vec::new(), team: 2, next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
                                 });
                                 next_enemy_id += 1;
                                 break; // Only spawn one enemy per timer tick to prevent performance spikes
@@ -198,7 +216,7 @@ fn main() {
         while let Ok((len, addr)) = socket.recv_from(&mut buf) {
             if let Some(payload) = decode_packet(&buf[..len]) {
                 if let PacketPayload::Client(msg) = payload {
-                    handle_client_message(&socket, addr, msg, &mut db, &mut players, &mut pending_clients, &mut sessions, &mut enemies, &mut effects, &mut next_player_id, &mut next_enemy_id, &mut next_effect_id, &mut world);
+                    handle_client_message(&socket, addr, msg, &mut db, &mut players, &mut pending_clients, &mut sessions, &mut enemies, &mut effects, &mut buildings, &mut next_player_id, &mut next_enemy_id, &mut next_effect_id, &mut next_building_id, &mut world);
                 }
             }
         }
@@ -542,6 +560,40 @@ fn main() {
             effects.retain(|e| e.timer > 0.0);
             enemies.retain(|_, e| e.death_timer < 2.5);
 
+            // Update Buildings
+            for building in buildings.values_mut() {
+                if building.construction_progress < 1.0 {
+                    building.construction_progress += dt * 0.1; // Takes 10 seconds to build
+                    if building.construction_progress > 1.0 {
+                        building.construction_progress = 1.0;
+                    }
+                } else {
+                    // Process production queue
+                    if building.active_production.is_none() && !building.production_queue.is_empty() {
+                        let unit_type = building.production_queue.remove(0);
+                        building.active_production = Some((unit_type, 0.0));
+                    }
+                    
+                    if let Some((_, progress)) = &mut building.active_production {
+                        *progress += dt * 0.5; // Takes 2 seconds to produce a unit
+                        if *progress >= 1.0 {
+                            let mut rng = rand::thread_rng();
+                            use rand::Rng;
+                            let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+                            let sx = building.x + angle.cos() * 3.0;
+                            let sz = building.z + angle.sin() * 3.0;
+                            // Spawn unit for player's team (Team 1)
+                            enemies.insert(next_enemy_id, ServerEnemy {
+                                id: next_enemy_id, race_idx: 0, x: sx, z: sz, target_x: sx, target_z: sz, direction: 0, anim_state: 0, health: 100, max_health: 100,
+                                current_path: Vec::new(), team: 1, next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
+                            });
+                            next_enemy_id += 1;
+                            building.active_production = None;
+                        }
+                    }
+                }
+            }
+
             // Handle Revival
             let player_ids: Vec<SocketAddr> = players.keys().cloned().collect();
             for i in 0..player_ids.len() {
@@ -606,6 +658,7 @@ fn main() {
                     is_dead: p.is_dead,
                     revive_progress: p.revive_timer / 3.0,
                     current_path: p.current_path.iter().map(|v| (v.x, v.z)).collect(),
+                    team: p.team,
                 });
             }
 
@@ -623,6 +676,7 @@ fn main() {
                     health: e.health,
                     max_health: e.max_health,
                     current_path: e.current_path.iter().map(|v| (v.x, v.z)).collect(),
+                    team: e.team,
                 });
             }
 
@@ -647,6 +701,21 @@ fn main() {
                 });
             }
 
+            let mut building_states = Vec::new();
+            for b in buildings.values() {
+                building_states.push(BuildingStateNet {
+                    id: b.id,
+                    building_type: b.building_type.clone(),
+                    x: b.x,
+                    z: b.z,
+                    health: b.health,
+                    max_health: b.max_health,
+                    team: b.team,
+                    construction_progress: b.construction_progress,
+                    active_production: b.active_production.clone(),
+                });
+            }
+
             server_tick += 1;
             let world_msg = ServerMessage::WorldState {
                 tick: server_tick,
@@ -655,6 +724,7 @@ fn main() {
                 enemies: enemy_states,
                 effects: effect_states,
                 gates: gate_states,
+                buildings: building_states,
             };
 
             let packet = encode_server_message(&world_msg);
@@ -677,9 +747,11 @@ fn handle_client_message(
     sessions: &mut HashMap<u64, SocketAddr>,
     enemies: &mut HashMap<u64, ServerEnemy>,
     effects: &mut Vec<ActiveEffect>,
+    buildings: &mut HashMap<u64, ServerBuilding>,
     next_id: &mut PlayerId,
     next_enemy_id: &mut u64,
     next_effect_id: &mut u64,
+    next_building_id: &mut u64,
     world: &mut ChunkedWorld,
 ) {
     match msg {
@@ -739,7 +811,7 @@ fn handle_client_message(
             players.insert(addr, ServerPlayer {
                 id, addr, name, appearance, x, z, target_x: x, target_z: z, direction: 0, anim_state: 0, anim_frame: 0.0, casting_timer: 0.0, last_heard: Instant::now(),
                 current_hp: hp, max_hp, current_mp: mp, max_mp, is_dead, revive_timer: 0.0, is_invulnerable: false, loaded_chunks: HashSet::new(),
-                account_id: pc.account_id, character_id, session_token, current_path: Vec::new(),
+                account_id: pc.account_id, character_id, session_token, current_path: Vec::new(), team: 1,
             });
         }
 
@@ -920,9 +992,55 @@ fn handle_client_message(
                 let sz = player.z + angle.sin() * 5.0;
                 enemies.insert(*next_enemy_id, ServerEnemy {
                     id: *next_enemy_id, race_idx: rng.gen_range(0..2) as usize, x: sx, z: sz, target_x: sx, target_z: sz, direction: 0, anim_state: 0, health: 100, max_health: 100,
-                    current_path: Vec::new(), next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
+                    current_path: Vec::new(), team: 2, next_path_recalc: 0.0, death_timer: 0.0, hurt_timer: 0.0, attack_timer: 0.0, spawn_x: sx, spawn_z: sz,
                 });
                 *next_enemy_id += 1;
+            }
+        }
+        
+        ClientMessage::StartConstruction { building_type, x, z } => {
+            if let Some(player) = players.get(&addr) {
+                let id = *next_building_id;
+                *next_building_id += 1;
+                buildings.insert(id, ServerBuilding {
+                    id,
+                    building_type,
+                    x,
+                    z,
+                    health: 1, // Start with 1 health while constructing
+                    max_health: 500,
+                    team: player.team,
+                    construction_progress: 0.0,
+                    active_production: None,
+                    production_queue: Vec::new(),
+                });
+                println!("[SERVER] Player {} started constructing {} at ({:.1}, {:.1})", player.id, buildings[&id].building_type, x, z);
+            }
+        }
+
+        ClientMessage::QueueProduction { building_id, unit_type } => {
+            if let Some(building) = buildings.get_mut(&building_id) {
+                // Ensure only owning team can queue
+                if let Some(player) = players.get(&addr) {
+                    if building.team == player.team {
+                        building.production_queue.push(unit_type);
+                        println!("[SERVER] Building {} queued production of {}", building_id, building.production_queue.last().unwrap());
+                    }
+                }
+            }
+        }
+
+        ClientMessage::CancelProduction { building_id, queue_index } => {
+            if let Some(building) = buildings.get_mut(&building_id) {
+                if let Some(player) = players.get(&addr) {
+                    if building.team == player.team {
+                        if queue_index < building.production_queue.len() {
+                            building.production_queue.remove(queue_index);
+                        } else if queue_index == 0 && building.active_production.is_some() {
+                            building.active_production = None;
+                        }
+                    }
+                }
             }
         }
     }

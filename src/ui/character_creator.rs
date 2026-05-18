@@ -16,6 +16,17 @@ pub struct CharacterCreator {
     pub character_name: String,
     pub confirmed_already_sent: bool,
     pub error_message: Option<String>,
+    
+    // Class Editor State
+    pub show_class_popup: bool,
+    pub class_name_input: String,
+    pub unit_name_input: String,
+    pub cost_input: i32,
+    pub str_input: i32,
+    pub agi_input: i32,
+    pub int_input: i32,
+    pub scale_input: f32,
+    pub is_hero_input: bool,
 }
 
 impl CharacterCreator {
@@ -41,6 +52,15 @@ impl CharacterCreator {
             character_name: String::new(),
             confirmed_already_sent: false,
             error_message: None,
+            show_class_popup: false,
+            class_name_input: String::new(),
+            unit_name_input: String::new(),
+            cost_input: 100,
+            str_input: 10,
+            agi_input: 10,
+            int_input: 10,
+            scale_input: 1.0,
+            is_hero_input: false,
         }
     }
 
@@ -409,11 +429,11 @@ impl CharacterCreator {
             }
         }
 
-        // ─── BOTTOM BUTTONS: Randomize / Reset / Confirm ───
+        // ─── BOTTOM BUTTONS: Randomize / Reset / Confirm / Save As Unit ───
         let btn_w = 160.0;
         let btn_h = 45.0;
         let btn_gap = 20.0;
-        let total_w = btn_w * 3.0 + btn_gap * 2.0;
+        let total_w = btn_w * 4.0 + btn_gap * 3.0; // 4 buttons now
         let start_x = (sw - total_w) / 2.0;
         let btn_y = sh - 65.0;
 
@@ -482,6 +502,16 @@ impl CharacterCreator {
             my,
             clicked,
         ) || is_key_pressed(KeyCode::Enter);
+        // SAVE AS UNIT
+        let save_unit_clicked = draw_button(
+            start_x + (btn_w + btn_gap) * 3.0,
+            "SAVE AS UNIT",
+            Color::new(0.5, 0.4, 0.1, 1.0),
+            Color::new(0.7, 0.6, 0.2, 1.0),
+            mx,
+            my,
+            clicked,
+        );
 
         if randomize_clicked {
             self.randomize();
@@ -495,10 +525,14 @@ impl CharacterCreator {
             self.needs_reload = true;
         }
 
-        if confirm_clicked {
+        if confirm_clicked && !self.show_class_popup {
             let _ = self.appearance.save_to_file("character.json");
             self.confirmed = true;
             return true;
+        }
+
+        if save_unit_clicked {
+            self.show_class_popup = !self.show_class_popup;
         }
 
         false
@@ -548,5 +582,6 @@ impl CharacterCreator {
         self.character_name.clear();
         self.confirmed_already_sent = false;
         self.error_message = None;
+        self.show_class_popup = false;
     }
 }

@@ -254,6 +254,10 @@ async fn main() {
         target_pos: vec3(0.0, 0.0, 0.0),
         current_path: Vec::new(),
         stats: Stats::new(10, 15, 10),
+        scale: 1.0,
+        base_appearance: initial_appearance.clone(),
+        current_appearance: initial_appearance.clone(),
+        equipment: crate::entities::item::Equipment::new(),
         anim: AnimationManager::new(config),
         targeting_state: TargetingState::None,
         casting_timer: 0.0,
@@ -321,6 +325,9 @@ async fn main() {
 
     let mut clipboard = Clipboard::new().ok();
     let mut show_escape_menu = false;
+
+    let mut selected_building_id: Option<u64> = None;
+    let mut placement_mode: Option<String> = None;
 
     loop {
         clear_background(DARKGRAY);
@@ -408,6 +415,88 @@ async fn main() {
                                 .hint_text("Enter Name…")
                         );
                     });
+
+                if creator.show_class_popup {
+                    egui::Window::new("Save Unit Definition")
+                        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(ctx, |ui| {
+                            ui.set_width(300.0);
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("Class (Race):");
+                                ui.text_edit_singleline(&mut creator.class_name_input);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Unit Name:");
+                                ui.text_edit_singleline(&mut creator.unit_name_input);
+                            });
+                            ui.add_space(5.0);
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("Cost:");
+                                ui.add(egui::DragValue::new(&mut creator.cost_input).speed(1));
+                            });
+                            ui.add_space(5.0);
+
+                            ui.label("Base Stats:");
+                            ui.horizontal(|ui| {
+                                ui.label("Strength:");
+                                ui.add(egui::DragValue::new(&mut creator.str_input).speed(1));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Agility:");
+                                ui.add(egui::DragValue::new(&mut creator.agi_input).speed(1));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Intelligence:");
+                                ui.add(egui::DragValue::new(&mut creator.int_input).speed(1));
+                            });
+                            
+                            ui.add_space(5.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Scale:");
+                                ui.add(egui::Slider::new(&mut creator.scale_input, 0.5..=3.0));
+                            });
+                            ui.checkbox(&mut creator.is_hero_input, "Is MOBA Hero");
+                            
+                            ui.add_space(15.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("Cancel").clicked() {
+                                    creator.show_class_popup = false;
+                                }
+                                if ui.button("Save Unit").clicked() {
+                                    let def = UnitDefinition {
+                                        unit_name: creator.unit_name_input.clone(),
+                                        unit_class: creator.class_name_input.clone(),
+                                        cost: creator.cost_input,
+                                        strength: creator.str_input,
+                                        agility: creator.agi_input,
+                                        intelligence: creator.int_input,
+                                        scale: creator.scale_input,
+                                        is_hero: creator.is_hero_input,
+                                        appearance: creator.appearance.clone(),
+                                    };
+                                    let class_folder = if def.unit_class.is_empty() {
+                                        "UnknownClass".to_string()
+                                    } else {
+                                        def.unit_class.replace(" ", "_")
+                                    };
+                                    let filename = if def.unit_name.is_empty() {
+                                        "UnnamedUnit".to_string()
+                                    } else {
+                                        def.unit_name.replace(" ", "_")
+                                    };
+                                    
+                                    let dir_path = format!("classes/{}", class_folder);
+                                    let _ = std::fs::create_dir_all(&dir_path);
+                                    let _ = def.save_to_file(&format!("{}/{}.json", dir_path, filename));
+                                    creator.show_class_popup = false;
+                                }
+                            });
+                        });
+                }
             }
 
             if game_state == GameState::ClusterEditor {
@@ -472,6 +561,66 @@ async fn main() {
                             ui.add_space(15.0);
                         });
                     });
+            }
+
+            if game_state == GameState::Playing && !show_escape_menu {
+                if let Some(building_id) = selected_building_id {
+                    let mut b_type = None;
+                    let mut b_hp = 0;
+                    let mut b_max_hp = 1;
+                    let mut b_prog = 0.0;
+                    let mut b_queue = false;
+                    if let Some(ref client) = net_client {
+                        if let Some(ref world) = client.latest_world {
+                            if let Some(b) = world.buildings.iter().find(|b| b.id == building_id) {
+                                b_type = Some(b.building_type.clone());
+                                b_hp = b.health;
+                                b_max_hp = b.max_health;
+                                b_prog = b.construction_progress;
+                                b_queue = b.active_production.is_some();
+                            }
+                        }
+                    }
+                    if let Some(b_type) = b_type {
+                        egui::Window::new("Command Card")
+                            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -10.0))
+                            .collapsible(false)
+                            .resizable(false)
+                            .title_bar(false)
+                            .frame(egui::Frame::window(&ctx.style()).fill(egui::Color32::from_rgba_unmultiplied(15, 12, 28, 245)))
+                            .show(ctx, |ui| {
+                                ui.set_width(400.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.heading(if b_type == "tent_detailedOpen.glb" { "Barracks" } else { "Building" });
+                                    ui.add_space(5.0);
+                                    if b_prog < 1.0 {
+                                        ui.label(format!("Constructing: {:.0}%", b_prog * 100.0));
+                                    } else {
+                                        ui.label(format!("HP: {}/{}", b_hp, b_max_hp));
+                                        if b_queue {
+                                            ui.label(egui::RichText::new("Producing unit...").color(egui::Color32::YELLOW));
+                                        }
+                                        ui.add_space(10.0);
+                                        ui.horizontal(|ui| {
+                                            if b_type == "tent_detailedOpen.glb" {
+                                                if ui.button("Spawn Unit").clicked() {
+                                                    if let Some(ref nc) = net_client {
+                                                        nc.send(&ClientMessage::QueueProduction {
+                                                            building_id,
+                                                            unit_type: "Hunter".to_string(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                    } else {
+                        // Deselect if building no longer exists
+                        selected_building_id = None;
+                    }
+                }
             }
         });
 
@@ -637,7 +786,9 @@ async fn main() {
                             creator.confirmed_already_sent = false;
                         }
                     } else {
-                        char_textures = CharacterTextures::from_appearance(&creator.appearance, &catalog).await;
+                        hero.base_appearance = creator.appearance.clone();
+                        hero.update_appearance_from_equipment();
+                        char_textures = CharacterTextures::from_appearance(&hero.current_appearance, &catalog).await;
                         game_state = GameState::Playing;
                         creator.confirmed = false;
                         creator.confirmed_already_sent = false;
@@ -957,8 +1108,19 @@ async fn main() {
                 // Hot reload world data
                 chunk_world.check_hot_reload();
                 world_env.check_hot_reload();
+
                 if is_key_pressed(KeyCode::Escape) {
-                    show_escape_menu = !show_escape_menu;
+                    if placement_mode.is_some() {
+                        placement_mode = None;
+                    } else if selected_building_id.is_some() {
+                        selected_building_id = None;
+                    } else {
+                        show_escape_menu = !show_escape_menu;
+                    }
+                }
+
+                if is_key_pressed(KeyCode::B) && !show_escape_menu && !egui_wants_pointer {
+                    placement_mode = Some("tent_detailedOpen.glb".to_string());
                 }
 
                 if is_key_pressed(KeyCode::C) && !show_escape_menu {
@@ -1286,6 +1448,38 @@ async fn main() {
 
                 // Send inputs to server
                 if let Some(ref client) = net_client {
+                    if is_mouse_button_pressed(MouseButton::Left) && !show_escape_menu && !egui_wants_pointer {
+                        if let Some(ref p_type) = placement_mode {
+                            if let Some(pos) = game_camera.get_mouse_ray_intersection() {
+                                let gs = world::chunk::GRID_SIZE;
+                                let snap_x = (pos.x / gs).round() * gs;
+                                let snap_z = (pos.z / gs).round() * gs;
+                                client.send(&ClientMessage::StartConstruction {
+                                    building_type: p_type.clone(),
+                                    x: snap_x,
+                                    z: snap_z,
+                                });
+                                placement_mode = None;
+                            }
+                        } else {
+                            // Selection
+                            if let Some(pos) = game_camera.get_mouse_ray_intersection() {
+                                let mut selected = None;
+                                if let Some(ref world) = client.latest_world {
+                                    for b in &world.buildings {
+                                        let dx = b.x - pos.x;
+                                        let dz = b.z - pos.z;
+                                        if (dx * dx + dz * dz).sqrt() < 3.0 { // 3.0 radius for selection
+                                            selected = Some(b.id);
+                                            break;
+                                        }
+                                    }
+                                }
+                                selected_building_id = selected;
+                            }
+                        }
+                    }
+
                     if is_mouse_button_pressed(MouseButton::Right)
                         && hero.targeting_state == TargetingState::None
                         && !hero.is_dead
@@ -1469,10 +1663,66 @@ async fn main() {
                 
                 combat_text_mgr.update(delta_time);
 
+                // Quick Debug hotkey to equip an item and update visuals
+                if is_key_pressed(KeyCode::I) {
+                    let debug_helm = crate::entities::item::Item::new(
+                        "item_kheshig_helm",
+                        "Kheshig Helm",
+                        crate::entities::item::ItemSlot::Head,
+                        "KheshigHelm",
+                    );
+                    hero.equipment.equip(debug_helm);
+                    hero.update_appearance_from_equipment();
+                    char_textures = CharacterTextures::from_appearance(&hero.current_appearance, &catalog).await;
+                }
+
                 // Render
                 set_camera(&game_camera.camera);
                 // draw_grid(20, 1.0, BLACK, GRAY);
                 chunk_world.draw();
+
+                // Draw buildings
+                if let Some(ref client) = net_client {
+                    if let Some(ref world) = client.latest_world {
+                        for b in &world.buildings {
+                            if let Some(template) = chunk_world.templates.get(&b.building_type) {
+                                let scale = if b.building_type == "tent_detailedOpen.glb" { 2.0 } else { 1.0 };
+                                let color = if b.construction_progress < 1.0 {
+                                    Color::new(0.5, 0.5, 0.8, 0.8) // Transparent blue-ish while building
+                                } else {
+                                    WHITE
+                                };
+                                world::environment::draw_template(template, vec3(b.x, 0.0, b.z), 0.0, scale, color);
+
+                                // Selection Ring
+                                if Some(b.id) == selected_building_id {
+                                    for i in 0..16 {
+                                        let angle1 = (i as f32 / 16.0) * std::f32::consts::PI * 2.0;
+                                        let angle2 = ((i + 1) as f32 / 16.0) * std::f32::consts::PI * 2.0;
+                                        draw_line_3d(
+                                            vec3(b.x + angle1.cos() * 3.0, 0.1, b.z + angle1.sin() * 3.0),
+                                            vec3(b.x + angle2.cos() * 3.0, 0.1, b.z + angle2.sin() * 3.0),
+                                            GREEN
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Draw Placement Ghost
+                if let Some(ref p_type) = placement_mode {
+                    if let Some(pos) = game_camera.get_mouse_ray_intersection() {
+                        let gs = world::chunk::GRID_SIZE;
+                        let snap_x = (pos.x / gs).round() * gs;
+                        let snap_z = (pos.z / gs).round() * gs;
+                        if let Some(template) = chunk_world.templates.get(p_type) {
+                            let scale = if p_type == "tent_detailedOpen.glb" { 2.0 } else { 1.0 };
+                            world::environment::draw_template(template, vec3(snap_x, 0.0, snap_z), 0.0, scale, Color::new(0.0, 1.0, 0.0, 0.5));
+                        }
+                    }
+                }
                 
                 // (Note: Debug pathfinding overlay disabled for infinite world for now)
 
@@ -1678,7 +1928,7 @@ async fn main() {
                         kind: DrawKind::Billboard {
                             tex: tex.clone(),
                             src,
-                            size: 2.3,
+                            size: 2.3 * hero.scale,
                         },
                         dist_sq: (cam_pos - hero.pos).length_squared(),
                         color,

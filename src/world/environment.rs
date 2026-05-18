@@ -1133,3 +1133,16 @@ impl WorldEnvironment {
         }
     }
 }
+
+pub fn draw_template(template: &GltfTemplate, pos: Vec3, rotation: f32, scale: f32, color: Color) {
+    let mut meshes = instantiate(template, pos, rotation, scale);
+    for mesh in &mut meshes {
+        for v in &mut mesh.vertices {
+            v.color[0] = (v.color[0] as f32 * color.r) as u8;
+            v.color[1] = (v.color[1] as f32 * color.g) as u8;
+            v.color[2] = (v.color[2] as f32 * color.b) as u8;
+            v.color[3] = (v.color[3] as f32 * color.a) as u8;
+        }
+        draw_mesh(mesh);
+    }
+}

@@ -1,0 +1,20 @@
+{
+  "unit_name": "Mage",
+  "unit_class": "Dwarf",
+  "cost": 100,
+  "strength": 10,
+  "agility": 10,
+  "intelligence": 10,
+  "appearance": {
+    "skin": "Human1",
+    "shoes": "ShoesBrown",
+    "clothes": "BasicBlack",
+    "gloves": "GlovesLightBrown",
+    "hairstyle": null,
+    "facial_hair": "Beardstyle2Blond",
+    "eye_color": null,
+    "eyelashes": "FEyelash1",
+    "headgear": "HighMageHatRed",
+    "addon": null
+  }
+}

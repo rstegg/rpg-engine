@@ -21,6 +21,7 @@ pub const MAX_CHARACTERS_PER_ACCOUNT: usize = 5;
 // ─── Unique Player Identity ───
 
 pub type PlayerId = u64;
+pub type TeamId = u8;
 
 // ─── Client → Server Messages ───
 
@@ -64,6 +65,22 @@ pub enum ClientMessage {
     DebugToggleGodMode,
     /// DEBUG: Force spawn an enemy nearby for testing.
     DebugForceSpawn,
+    /// Start constructing a building at the given coordinates
+    StartConstruction {
+        building_type: String,
+        x: f32,
+        z: f32,
+    },
+    /// Queue a unit for production at a specific building
+    QueueProduction {
+        building_id: u64,
+        unit_type: String,
+    },
+    /// Cancel a production item in the building's queue
+    CancelProduction {
+        building_id: u64,
+        queue_index: usize,
+    },
 }
 
 // ─── Server → Client Messages ───
@@ -118,6 +135,7 @@ pub enum ServerMessage {
         enemies: Vec<EnemyStateNet>,
         effects: Vec<EffectState>,
         gates: Vec<GateStateNet>,
+        buildings: Vec<BuildingStateNet>,
     },
     /// Response to client Ping.
     Pong { client_time: f64, server_time: f64 },
@@ -158,6 +176,7 @@ pub struct PlayerState {
     pub is_dead: bool,
     pub revive_progress: f32, // 0.0 to 1.0
     pub current_path: Vec<(f32, f32)>,
+    pub team: TeamId,
 }
 
 /// Compact spell effect for network transmission.
@@ -185,6 +204,20 @@ pub struct EnemyStateNet {
     pub health: i32,
     pub max_health: i32,
     pub current_path: Vec<(f32, f32)>,
+    pub team: TeamId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildingStateNet {
+    pub id: u64,
+    pub building_type: String,
+    pub x: f32,
+    pub z: f32,
+    pub health: i32,
+    pub max_health: i32,
+    pub team: TeamId,
+    pub construction_progress: f32, // 0.0 to 1.0
+    pub active_production: Option<(String, f32)>, // (unit_type, progress 0.0-1.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

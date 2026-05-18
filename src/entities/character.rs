@@ -46,6 +46,34 @@ impl CharacterAppearance {
     }
 }
 
+/// Represents a configured unit that belongs to a class/race.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UnitDefinition {
+    pub unit_name: String,
+    pub unit_class: String, // e.g., "Orc", "Human"
+    pub cost: i32,
+    pub strength: i32,
+    pub agility: i32,
+    pub intelligence: i32,
+    pub scale: f32,
+    pub is_hero: bool,
+    pub appearance: CharacterAppearance,
+}
+
+impl UnitDefinition {
+    /// Save unit definition to a JSON file
+    pub fn save_to_file(&self, path: &str) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    /// Load unit definition from a JSON file
+    pub fn load_from_file(path: &str) -> Result<Self, String> {
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+}
+
 /// Represents all available options discovered from the assets directory.
 #[derive(Clone, Debug)]
 pub struct LayerCatalog {

@@ -49,6 +49,7 @@ pub struct WorldSnapshot {
     pub enemies: Vec<EnemyStateNet>,
     pub effects: Vec<EffectState>,
     pub gates: Vec<GateStateNet>,
+    pub buildings: Vec<BuildingStateNet>,
 }
 
 impl NetClient {
@@ -258,6 +259,7 @@ impl NetClient {
                 enemies,
                 effects,
                 gates,
+                buildings,
             } => {
                 self.latest_world = Some(WorldSnapshot {
                     tick,
@@ -265,6 +267,7 @@ impl NetClient {
                     enemies,
                     effects,
                     gates,
+                    buildings,
                 });
             }
             ServerMessage::Pong {
